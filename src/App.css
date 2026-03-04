@@ -1,0 +1,462 @@
+/* ─── Reset & Base ────────────────────────────────────────────────────────── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #F1F5F9;
+  color: #1E293B;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Header ──────────────────────────────────────────────────────────────── */
+.header {
+  background: #fff;
+  border-bottom: 2px solid #E2E8F0;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0F172A;
+  white-space: nowrap;
+}
+
+.header-tabs {
+  display: flex;
+  background: #F1F5F9;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.htab {
+  padding: 6px 20px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748B;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.htab-active {
+  background: #0F172A;
+  color: #fff;
+}
+
+.header-url {
+  margin-left: auto;
+  font-size: 11px;
+  color: #94A3B8;
+  background: #F8FAFC;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid #E2E8F0;
+}
+
+/* ─── Body layout ─────────────────────────────────────────────────────────── */
+.body-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ─── Config panel (left) ─────────────────────────────────────────────────── */
+.config-panel {
+  width: 280px;
+  min-width: 280px;
+  background: #fff;
+  border-right: 1px solid #E2E8F0;
+  padding: 20px;
+  overflow-y: auto;
+  max-height: calc(100vh - 52px);
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0F172A;
+  margin-bottom: 16px;
+}
+
+.field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.select-row {
+  display: flex;
+  gap: 10px;
+}
+
+.select-col {
+  flex: 1;
+}
+
+.select-col .field-label {
+  margin-top: 0;
+}
+
+.field-select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #CBD5E1;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #fff;
+  color: #1E293B;
+  cursor: pointer;
+}
+
+.field-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #CBD5E1;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: inherit;
+  resize: vertical;
+  color: #64748B;
+}
+
+.field-textarea::placeholder { color: #94A3B8; }
+
+/* Radio groups */
+.radio-grid-2x2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+
+.radio-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.radio-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.radio-item input[type="radio"] {
+  accent-color: #0F172A;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+/* Toggle switches */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.toggle-label {
+  font-size: 12px;
+  color: #334155;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: #CBD5E1;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.toggle-switch.toggle-on {
+  background: #16A34A;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-switch.toggle-on .toggle-knob {
+  transform: translateX(16px);
+}
+
+/* Run button */
+.run-btn {
+  margin-top: 18px;
+  width: 100%;
+  padding: 10px 0;
+  background: #16A34A;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.run-btn:hover { background: #15803D; }
+.run-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.run-result {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #166534;
+  word-break: break-word;
+}
+
+.run-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #991B1B;
+  word-break: break-word;
+}
+
+/* ─── Pipeline panel (right) ──────────────────────────────────────────────── */
+.pipeline-panel {
+  flex: 1;
+  padding: 12px 16px;
+  overflow: auto;
+  max-height: calc(100vh - 52px);
+}
+
+.pipeline-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Pipeline header + legend */
+.pipeline-header {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.pipeline-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0F172A;
+}
+
+.pipeline-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.legend-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.legend-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.legend-dots { color: #94A3B8; font-size: 13px; }
+
+/* Input SQL section */
+.input-sql-section {
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.input-sql-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F172A;
+  margin-bottom: 4px;
+}
+
+.input-sql-card {
+  background: #FEFCE8;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  max-width: 620px;
+}
+
+/* Arrow containers */
+.arrow-down-wrap {
+  display: flex;
+  justify-content: flex-start;
+  padding-left: 50px;
+  margin: 1px 0;
+}
+
+.arrow-h {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* ─── Pipeline round ──────────────────────────────────────────────────────── */
+.pipeline-round {
+  margin: 2px 0;
+}
+
+.round-flow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+/* Generic flow boxes */
+.flow-box {
+  padding: 8px 14px;
+  border: 2px solid #94A3B8;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  text-align: center;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.ir-box {
+  background: #fff;
+}
+
+.subir-box {
+  min-width: 70px;
+}
+
+/* Sub-SQL card */
+.subsql-card {
+  border: 1.5px solid #94A3B8;
+  border-radius: 5px;
+  padding: 6px 8px;
+  max-width: 260px;
+  min-width: 180px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.subsql-title {
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+/* Temp table card */
+.temp-card {
+  border: 2px solid #94A3B8;
+  border-radius: 6px;
+  padding: 8px 12px;
+  text-align: center;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.temp-name {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 1px;
+}
+
+.temp-detail {
+  font-size: 10px;
+  color: #475569;
+}
+
+/* Output bar */
+.output-bar {
+  margin-top: 10px;
+  width: 100%;
+  background: #334155;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+}
+
+/* ─── SQL block ───────────────────────────────────────────────────────────── */
+.sql-block {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  line-height: 1.35;
+  color: #1E293B;
+}
+
+.sql-kw { font-weight: 700; }
+.sql-str { color: #16A34A; }
+
+/* ─── Empty state ─────────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: #94A3B8;
+  text-align: center;
+}
+
+.empty-icon { font-size: 48px; margin-bottom: 12px; }
+.empty-title { font-size: 18px; font-weight: 600; color: #64748B; margin-bottom: 6px; }
+.empty-text { font-size: 13px; max-width: 300px; }
+
+/* Spin animation */
+.spin { animation: spin 1.5s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
