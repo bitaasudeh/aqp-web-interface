@@ -1,7 +1,8 @@
 import express from "express";
 import cors from "cors";
 import { execFile } from "child_process";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
 import path from "path";
 
 const app = express();
@@ -17,17 +18,18 @@ const FKEYS = path.join(BENCHMARK_DIR, "fkeys.sql");
 /* Engine-specific DB connection strings */
 const ENGINE_DB = {
   duckdb: path.join(BENCHMARK_DIR, "imdb.db"),
-  postgresql: "host=localhost port=5432 dbname=imdb user=bita",
+  postgresql: "host=localhost port=5433 dbname=imdb user=bita",
   umbra: "host=localhost port=5432 user=postgres password=postgres",
   mariadb: "host=localhost dbname=imdb user=imdb",
+  opengauss: "host=localhost port=7654 dbname=imdb user=imdb password=imdb_132",
 };
 
 /* Map frontend split names to CLI values */
 const SPLIT_MAP = {
   "relation-center": "relationshipcenter",
-  "entity-center": "entity_center",
-  "min-subquery": "min_subquery",
-  "node-based": "top_down",
+  "entity-center": "entitycenter",
+  "min-subquery": "minsubquery",
+  "node-based": "nodebased",
 };
 
 /* ─── Output parser ─────────────────────────────────────────────────────────── */
@@ -68,11 +70,12 @@ function parseMiddlewareOutput(stdout) {
   }
 
   /* Build rounds */
-  const colors = ["#2563EB", "#DC2626", "#8B5CF6", "#059669", "#D97706", "#EC4899"];
+  const colors = ["#EE6677", "#AA3377", "#FE6100", "#CCBB00"];
   const iterNums = Object.keys(subSqls).sort((a, b) => a - b);
   for (const num of iterNums) {
     const idx = parseInt(num) - 1;
     const temp = temps[num] || { name: `temp${num}`, rows: 0 };
+    if (times[num] != null) temp.time = times[num];
     const tableCountMatch = stdout.match(
       new RegExp(`\\[Iteration ${num}\\] Extracted subquery with (\\d+) table`)
     );
@@ -90,8 +93,27 @@ function parseMiddlewareOutput(stdout) {
   }
 
   /* Final SQL */
-  const finalMatch = stdout.match(/=== Final Generated SQL ===\n([\s\S]*?)(?=\[IRQuerySplitter\])/);
-  if (finalMatch) result.finalSql = finalMatch[1].trim();
+  const finalMatch = stdout.match(/=== Final Generated (?:Sub-)?SQL ===\n([\s\S]*?)(?=\[IRQuerySplitter\] =+)/);
+  if (!finalMatch) {
+    /* Fallback: grab everything between header and Query Results */
+    const fallback = stdout.match(/=== Final Generated (?:Sub-)?SQL ===\n([\s\S]*?)(?=\n=== Query Results ===|\n={3,})/);
+    if (fallback) result.finalSql = fallback[1].trim();
+  } else {
+    result.finalSql = finalMatch[1].trim();
+  }
+
+  /* Combined Sub-Plan SQL (when --combine-sub-plans is used) */
+  const combinedMatch = stdout.match(/=== Combined Sub-Plan SQL ===\n([\s\S]*?)(?=\n=== Query Results ===|\n={3,}|$)/);
+  if (combinedMatch) {
+    result.combinedSql = combinedMatch[1].trim();
+    /* Strip combined SQL from finalSql if it got appended */
+    if (result.finalSql) {
+      const combIdx = result.finalSql.indexOf("=== Combined Sub-Plan SQL ===");
+      if (combIdx !== -1) {
+        result.finalSql = result.finalSql.substring(0, combIdx).trim();
+      }
+    }
+  }
 
   /* Final round (the final remaining IR execution) */
   if (result.finalSql) {
@@ -106,6 +128,15 @@ function parseMiddlewareOutput(stdout) {
       subSqlTitle: "Final SQL",
       subSql: result.finalSql,
       temp: { name: "result", rows: rowMatch ? parseInt(rowMatch[1]) : 0 },
+    });
+  }
+
+  /* Extract column aliases from original SQL SELECT clause */
+  const selectMatch = result.originalSql.match(/SELECT\s+([\s\S]*?)\s+FROM\s/i);
+  if (selectMatch) {
+    result.output.columns = selectMatch[1].split(",").map((col) => {
+      const asMatch = col.trim().match(/\bAS\s+(\w+)\s*$/i);
+      return asMatch ? asMatch[1] : col.trim();
     });
   }
 
@@ -124,13 +155,35 @@ function parseMiddlewareOutput(stdout) {
   return result;
 }
 
+/* ─── Query file reader ────────────────────────────────────────────────────── */
+app.get("/api/query/:name", (req, res) => {
+  const queryFile = path.join(BENCHMARK_DIR, "queries", `${req.params.name}.sql`);
+  try {
+    const sql = readFileSync(queryFile, "utf-8").trim();
+    res.json({ sql });
+  } catch {
+    res.status(404).json({ error: "Query file not found" });
+  }
+});
+
 /* ─── API endpoint ──────────────────────────────────────────────────────────── */
 app.post("/api/run", (req, res) => {
-  const { engine = "duckdb", split = "relation-center", query = "1a", customSql } = req.body;
+  const { engine = "duckdb", split = "relation-center", query = "1a", customSql,
+          cardinalityEstimator = true, mergeSubPlan = false } = req.body;
 
   const splitArg = SPLIT_MAP[split] || "relationshipcenter";
   const dbArg = ENGINE_DB[engine] || ENGINE_DB.duckdb;
-  const queryFile = path.join(BENCHMARK_DIR, "queries", `${query}.sql`);
+
+  /* If customSql is provided, write it to a temp file; otherwise use the query file */
+  let queryFile;
+  let tmpFile = null;
+  if (customSql && customSql.trim()) {
+    tmpFile = path.join(tmpdir(), `aqp_custom_${Date.now()}.sql`);
+    writeFileSync(tmpFile, customSql);
+    queryFile = tmpFile;
+  } else {
+    queryFile = path.join(BENCHMARK_DIR, "queries", `${query}.sql`);
+  }
 
   const args = [
     `--engine=${engine}`,
@@ -139,16 +192,102 @@ app.post("/api/run", (req, res) => {
     `--fkeys=${FKEYS}`,
     `--split=${splitArg}`,
     "--debug",
-    queryFile,
+    "--timing",
   ];
 
+  /* Cardinality Estimator: ON by default, add flag to disable */
+  if (!cardinalityEstimator) args.push("--no-update-temp-card");
+
+  /* Sub-SQL Combiner: OFF by default, add flag to enable */
+  if (mergeSubPlan) args.push("--combine-sub-plans");
+
+  args.push(queryFile);
+
+  /* Delete old time_log.csv before each run (it appends, so stale data stays) */
+  const csvPath = path.join(process.cwd(), "time_log.csv");
+  try { unlinkSync(csvPath); } catch {}
+
+  const startTime = Date.now();
   execFile(AQP_BIN, args, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const totalTime = Date.now() - startTime;
+    if (tmpFile) try { unlinkSync(tmpFile); } catch {}
     if (err && !stdout) {
       return res.status(500).json({ error: err.message, stderr });
     }
 
     try {
       const parsed = parseMiddlewareOutput(stdout);
+      parsed.totalTime = totalTime;
+
+      /* Read timing from time_log.csv (last line)
+         Format: prepare_middleware, read_sql, parse_sql, preprocess,
+                 convert_plan_to_ir (may be 0 for node-based),
+                 [extract_next_sub-IR, generate_sub-SQL, execute_sub-SQL, extra_materialization, update_IR] x N iterations,
+                 (optional extra extract_next_sub-IR),
+                 generate_final_sub_sql, final_exe, show_output */
+      try {
+        const csvLines = readFileSync(csvPath, "utf-8").trim().split("\n");
+        const lastLine = csvLines[csvLines.length - 1];
+        const vals = lastLine.split(",").map(v => parseFloat(v.trim()));
+
+        const total = vals.reduce((a, b) => a + (isNaN(b) ? 0 : b), 0);
+
+        /* Fixed start: indices 0-4 */
+        const prepareMiddleware = vals[0] || 0;
+        const readSql = vals[1] || 0;
+        const parseSql = vals[2] || 0;
+        let preprocess = vals[3] || 0;
+        let convertPlanToIR = vals[4] || 0;
+
+        /* DuckDB fix: for DuckDB + Node-Based, remove convert_plan_to_IR;
+           for DuckDB + other strategies, swap preprocess and convert_plan_to_IR */
+        if (engine === "duckdb") {
+          if (splitArg === "nodebased") {
+            convertPlanToIR = 0;
+          } else {
+            const tmp = preprocess;
+            preprocess = convertPlanToIR;
+            convertPlanToIR = tmp;
+          }
+        }
+
+        /* Fixed end: last 3 values */
+        const showOutput = vals[vals.length - 1] || 0;
+        const finalExe = vals[vals.length - 2] || 0;
+        const generateFinalSubSql = vals[vals.length - 3] || 0;
+
+        /* Middle: repeating groups of 5 per iteration */
+        const groupValues = vals.slice(5, vals.length - 3);
+        const groupCols = 5; /* extract, generate, execute, materialization, update */
+
+        let sumExtract = 0, sumGenerate = 0, sumExecute = 0, sumMaterialize = 0, sumUpdate = 0;
+
+        /* Handle possible extra extract_next_sub-IR at the end */
+        let mainGroupVals = groupValues;
+        if (groupValues.length % groupCols !== 0) {
+          sumExtract += groupValues[groupValues.length - 1] || 0;
+          mainGroupVals = groupValues.slice(0, groupValues.length - 1);
+        }
+
+        const numGroups = Math.floor(mainGroupVals.length / groupCols);
+        for (let i = 0; i < numGroups; i++) {
+          const base = i * groupCols;
+          sumExtract += mainGroupVals[base] || 0;
+          sumGenerate += mainGroupVals[base + 1] || 0;
+          sumExecute += mainGroupVals[base + 2] || 0;
+          sumMaterialize += mainGroupVals[base + 3] || 0;
+          sumUpdate += mainGroupVals[base + 4] || 0;
+        }
+
+        /* Categories per Pei's updated formula:
+           preprocess included in SQL Execution (contains DuckDB optimizer for DuckDB engine) */
+        const sqlExecution = preprocess + sumExecute + finalExe;
+        const fetchTuples = sumMaterialize;
+        const splitTime = sumExtract + sumUpdate;
+        const others = total - sqlExecution - fetchTuples - splitTime;
+
+        parsed.timing = { sqlExecution, fetchTuples, splitTime, others, total };
+      } catch {}
       /* Read original SQL from file for display */
       if (!parsed.originalSql) {
         try {
