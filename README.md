@@ -1,6 +1,6 @@
 # AQP Middleware Demo — Web Interface
 
-A web-based visualization tool for the AQP middleware query splitting pipeline. It provides an interactive UI to run JOB benchmark queries through different engines, AQP strategies, and configuration options, and displays the sub-SQL pipeline, query results, and timing breakdown.
+A web-based visualization tool for the AQP (Adaptive Query Processing) middleware query splitting pipeline. It provides an interactive UI to run JOB benchmark queries through different engines, AQP strategies, and configuration options, and displays the sub-SQL pipeline, query results, and timing breakdown.
 
 ## Prerequisites
 
