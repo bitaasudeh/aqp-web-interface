@@ -9,6 +9,19 @@ A web-based visualization tool for the AQP middleware query splitting pipeline. 
 - JOB benchmark query files and schema
 - At least one supported database engine running with the IMDB dataset loaded
 
+## Remote Access (SSH Port Forwarding)
+
+If the web interface is running on a remote server, use `ssh -L` to create a tunnel that forwards remote ports to your local machine. This lets your local browser access the web interface as if it were running locally.
+
+```bash
+ssh -L 5173:localhost:5173 -L 3001:localhost:3001 user@remote-server
+```
+
+- `-L 5173:localhost:5173` maps your local port 5173 to the remote server's port 5173 (frontend)
+- `-L 3001:localhost:3001` maps your local port 3001 to the remote server's port 3001 (backend)
+
+After connecting, open [http://localhost:5173](http://localhost:5173) in your local browser.
+
 ## Setup
 
 ```bash
@@ -27,19 +40,6 @@ npm run dev
 ```
 
 Then open [http://localhost:5173](http://localhost:5173) in your browser.
-
-## Remote Access (SSH Port Forwarding)
-
-If the web interface is running on a remote server, use `ssh -L` to create a tunnel that forwards remote ports to your local machine. This lets your local browser access the web interface as if it were running locally.
-
-```bash
-ssh -L 5173:localhost:5173 -L 3001:localhost:3001 user@remote-server
-```
-
-- `-L 5173:localhost:5173` maps your local port 5173 to the remote server's port 5173 (frontend)
-- `-L 3001:localhost:3001` maps your local port 3001 to the remote server's port 3001 (backend)
-
-After connecting, open [http://localhost:5173](http://localhost:5173) in your local browser.
 
 ## DBMS Configuration
 

@@ -2,6 +2,31 @@ import { useState, useEffect } from "react";
 import "./App.css";
 
 
+/* ─── SQL Formatter ─────────────────────────────────────────────────────── */
+function formatSql(raw) {
+  /* Collapse all whitespace to single spaces first */
+  let sql = raw.replace(/\s+/g, ' ').trim();
+  /* Put major keywords on their own line (no indent) */
+  sql = sql.replace(/ (FROM|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT|UNION|INTERSECT|EXCEPT) /gi,
+    (_, kw) => '\n' + kw.toUpperCase() + ' ');
+  /* Put AND / OR on their own line with minimal indent */
+  sql = sql.replace(/ (AND|OR) /gi,
+    (_, kw) => '\n ' + kw.toUpperCase() + ' ');
+  /* Put JOIN variants on their own line */
+  sql = sql.replace(/ ((INNER |LEFT |RIGHT |FULL |CROSS )?JOIN) /gi,
+    (_, kw) => '\n ' + kw.toUpperCase() + ' ');
+  /* Indent select items after first: put each comma-separated item on new line */
+  const selectMatch = sql.match(/^SELECT (.*?)(?=\nFROM )/s);
+  if (selectMatch) {
+    const items = selectMatch[1].split(',').map(s => s.trim());
+    const formatted = items.length > 1
+      ? items[0] + ',\n' + items.slice(1).map(it => '  ' + it).join(',\n')
+      : items[0];
+    sql = 'SELECT ' + formatted + sql.slice(selectMatch[0].length);
+  }
+  return sql;
+}
+
 /* ─── SQL Syntax Highlighter ─────────────────────────────────────────────── */
 const SQL_KW = new Set([
   "SELECT","FROM","WHERE","AND","OR","AS","MIN","MAX","COUNT","SUM","AVG",
@@ -114,9 +139,10 @@ function CombinedSqlBox({ sql, tempColors }) {
 }
 
 /* ─── Scenario Pipeline View ─────────────────────────────────────────────── */
-function ScenarioPipeline({ data, activeNode, setActiveNode, useCombineArrow = false }) {
+function ScenarioPipeline({ data, activeNode, setActiveNode, useCombineArrow = false, hideResult = false, hideTiming = false }) {
   if (!data) return null;
   if (data.error) return <div className="run-error">{data.error}</div>;
+  if (!data.rounds || data.rounds.length === 0) return <div className="run-error">No pipeline data returned</div>;
 
   const tempColors = {};
   data.rounds.forEach(r => {
@@ -137,11 +163,27 @@ function ScenarioPipeline({ data, activeNode, setActiveNode, useCombineArrow = f
             />
             {idx < data.rounds.length - 1 && (
               useCombineArrow
-                ? <span style={{ padding: "0 6px", fontWeight: 700, color: "#94A3B8", fontSize: "13px" }}>++=</span>
+                ? <span style={{ padding: "0 6px", fontWeight: 800, color: "#94A3B8", fontSize: "16px" }}>+</span>
                 : <ArrowRight color="#94A3B8" width={32} />
             )}
           </div>
         ))}
+        {useCombineArrow && data.combinedSql && (
+          <div className="pipeline-chain-item">
+            <span style={{ padding: "0 6px", fontWeight: 800, color: "#94A3B8", fontSize: "16px" }}>=</span>
+            <button
+              className={`pipeline-node ${activeNode === "combined" ? "pipeline-node-active" : ""}`}
+              style={{
+                borderColor: "var(--accent-violet)",
+                backgroundColor: activeNode === "combined" ? "rgba(124,58,237,0.08)" : "#fff",
+                "--node-color": "var(--accent-violet)",
+              }}
+              onClick={() => setActiveNode(activeNode === "combined" ? null : "combined")}
+            >
+              <div className="node-title" style={{ color: "var(--accent-violet)" }}>Combined SQL</div>
+            </button>
+          </div>
+        )}
       </div>
 
       {activeNode != null && (() => {
@@ -161,58 +203,83 @@ function ScenarioPipeline({ data, activeNode, setActiveNode, useCombineArrow = f
         );
       })()}
 
-      {data.combinedSql && <CombinedSqlBox sql={data.combinedSql} tempColors={tempColors} />}
+      {activeNode === "combined" && data.combinedSql && (
+        <div className="node-detail" style={{ borderColor: "var(--accent-violet)" }}>
+          <div className="node-detail-header">
+            <span className="node-detail-title" style={{ color: "var(--accent-violet)" }}>Combined SQL</span>
+          </div>
+          <SqlBlock sql={data.combinedSql} fontSize={11} tempColors={tempColors} />
+        </div>
+      )}
 
 
-      <div className="perf-section">
-        <div className="perf-box">
-          <div className="perf-row">
-            <div className="perf-left">
-              {data.output.rows.length > 0 && (
-                <div className="perf-result-box">
-                  <div className="perf-label">Query Result:</div>
-                  <div className="perf-table-wrap">
-                    <table className="perf-table">
-                      <thead>
-                        <tr>
-                          {data.output.columns.length > 0
-                            ? data.output.columns.map((c, i) => <th key={i}>{c}</th>)
-                            : data.output.rows[0].map((_, i) => <th key={i}>col {i + 1}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.output.rows.slice(0, 5).map((row, i) => (
-                          <tr key={i}>{row.map((val, j) => <td key={j}>{val}</td>)}</tr>
-                        ))}
-                      </tbody>
-                    </table>
+      {!hideTiming && (
+        <div className="perf-section">
+          <div className="perf-box">
+            <div className="perf-row">
+              {!hideResult && (
+                <div className="perf-left">
+                  {data.output.rows.length > 0 && (
+                    <div className="perf-result-box">
+                      <div className="perf-label">Query Result:</div>
+                      <div className="perf-table-wrap">
+                        <table className="perf-table">
+                          <thead>
+                            <tr>
+                              {data.output.columns.length > 0
+                                ? data.output.columns.map((c, i) => <th key={i}>{c}</th>)
+                                : data.output.rows[0].map((_, i) => <th key={i}>col {i + 1}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {data.output.rows.slice(0, 5).map((row, i) => (
+                              <tr key={i}>{row.map((val, j) => <td key={j}>{val}</td>)}</tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {data.timing && (
+                <div className={hideResult ? "perf-left" : "perf-right"}>
+                  <div className="perf-label">Timing Breakdown:</div>
+                  <div className="perf-timing-grid">
+                    <span>SQL Execution</span><span>{data.timing.sqlExecution?.toFixed(2)} ms</span>
+                    <span>Split Time</span><span>{data.timing.splitTime?.toFixed(2)} ms</span>
+                    <span>Others</span><span>{data.timing.others?.toFixed(2)} ms</span>
+                    <span className="perf-timing-total">Total</span>
+                    <span className="perf-timing-total">{data.timing.total?.toFixed(2)} ms</span>
                   </div>
                 </div>
               )}
             </div>
-            {data.timing && (
-              <div className="perf-right">
-                <div className="perf-label">Timing Breakdown:</div>
-                <div className="perf-timing-grid">
-                  <span>SQL Execution</span><span>{data.timing.sqlExecution?.toFixed(2)} ms</span>
-                  <span>Fetch Tuples</span><span>{data.timing.fetchTuples?.toFixed(2)} ms</span>
-                  <span>Split Time</span><span>{data.timing.splitTime?.toFixed(2)} ms</span>
-                  <span>Others</span><span>{data.timing.others?.toFixed(2)} ms</span>
-                  <span className="perf-timing-total">Total</span>
-                  <span className="perf-timing-total">{data.timing.total?.toFixed(2)} ms</span>
-                </div>
-              </div>
-            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
+const QUERY_LISTS = {
+  job: ["1a","1b","1c","1d","2a","2b","2c","2d","3a","3b","3c",
+    "4a","4b","4c","5a","5b","5c","6a","6b","6c","6d","6e","6f",
+    "7a","7b","7c","8a","8b","8c","8d","9a","9b","9c","9d",
+    "10a","10b","10c","11a","11b","11c","11d","12a","12b","12c",
+    "13a","13b","13c","13d","14a","14b","14c","15a","15b","15c","15d",
+    "16a","16b","16c","16d","17a","17b","17c","17d","17e","17f",
+    "18a","18b","18c","19a","19b","19c","19d","20a","20b","20c",
+    "21a","21b","21c","22a","22b","22c","22d","23a","23b","23c",
+    "24a","24b","25a","25b","25c","26a","26b","26c",
+    "27a","27b","27c","28a","28b","28c","29a","29b","29c",
+    "30a","30b","30c","31a","31b","31c","32a","32b",
+    "33a","33b","33c"],
+  dsb: [],
+};
+
 /* ─── Main App ───────────────────────────────────────────────────────────── */
 export default function App() {
-  const [selectedDataset, setSelectedDataset] = useState("imdb");
   const [dataset, setDataset] = useState("job");
   const [selectedQuery, setSelectedQuery] = useState("1a");
   const [customSql, setCustomSql] = useState("");
@@ -231,12 +298,29 @@ export default function App() {
   const [activeOption, setActiveOption] = useState("CE On | Combiner On");
   const [scenarioData, setScenarioData] = useState({});
   const [scenarioNode, setScenarioNode] = useState(null);
+  const [compDim, setCompDim] = useState("engines"); // what to compare: engines, strategies, integration
+  const [compEngineA, setCompEngineA] = useState("duckdb");
+  const [compEngineB, setCompEngineB] = useState("umbra");
+  const [compStrategy, setCompStrategy] = useState("relation-center");  // shared when not comparing strategies
+  const [compStrategyA, setCompStrategyA] = useState("relation-center");
+  const [compStrategyB, setCompStrategyB] = useState("entity-center");
+  const [compEngine, setCompEngine] = useState("duckdb");  // shared when not comparing engines
+  const [compIntegration, setCompIntegration] = useState({ ce: true, comb: false }); // shared
+  const [compIntegrationA, setCompIntegrationA] = useState({ ce: true, comb: false });
+  const [compIntegrationB, setCompIntegrationB] = useState({ ce: false, comb: false });
+  const [compDataA, setCompDataA] = useState(null);
+  const [compDataB, setCompDataB] = useState(null);
+  const [eng2Tab, setEng2Tab] = useState("engines");
+  const [eng2Engine, setEng2Engine] = useState("duckdb");
+  const [eng2Strategy, setEng2Strategy] = useState("relation-center");
+  const [eng2Integration, setEng2Integration] = useState({ ce: true, comb: false });
+  const [eng2Data, setEng2Data] = useState(null);
 
   /* Load query SQL when selection changes */
   useEffect(() => {
     fetch(`/api/query/${selectedQuery}`)
       .then(r => r.json())
-      .then(j => { if (j.sql) setCustomSql(j.sql.replace(/\s+/g, ' ').trim()); })
+      .then(j => { if (j.sql) setCustomSql(formatSql(j.sql)); })
       .catch(() => {});
   }, [selectedQuery]);
 
@@ -302,6 +386,27 @@ export default function App() {
         }
         setScenarioData(results);
         setHasRun(true);
+      } else if (activeTab === "Engine2") {
+        try {
+          setEng2Data(await runOne(eng2Engine, eng2Strategy, eng2Integration.ce, eng2Integration.comb));
+        } catch (e) { setEng2Data({ error: e.message }); }
+        setActiveNode(null);
+        setHasRun(true);
+      } else if (activeTab === "Comparison") {
+        const getCompParams = (side) => {
+          const eng = compDim === "engines" ? (side === "A" ? compEngineA : compEngineB) : compEngine;
+          const strat = compDim === "strategies" ? (side === "A" ? compStrategyA : compStrategyB) : compStrategy;
+          const integ = compDim === "integration" ? (side === "A" ? compIntegrationA : compIntegrationB) : compIntegration;
+          return { eng, strat, ce: integ.ce, comb: integ.comb };
+        };
+        const pA = getCompParams("A");
+        const pB = getCompParams("B");
+        try { setCompDataA(await runOne(pA.eng, pA.strat, pA.ce, pA.comb)); }
+        catch (e) { setCompDataA({ error: e.message }); }
+        try { setCompDataB(await runOne(pB.eng, pB.strat, pB.ce, pB.comb)); }
+        catch (e) { setCompDataB({ error: e.message }); }
+        setActiveNode(null);
+        setHasRun(true);
       } else {
         const result = await runOne(engine, splitStrategy);
         setData(result);
@@ -321,7 +426,7 @@ export default function App() {
       <header className="header">
         <h1 className="header-title">AQP Middleware Demo</h1>
         <div className="header-tabs">
-          {["Pipeline","Engines","Strategies","Options"].map(tab => (
+          {["Pipeline","Engines","Strategies","Options","Engine2","Comparison"].map(tab => (
             <button key={tab}
               className={`htab ${activeTab === tab ? "htab-active" : ""}`}
               onClick={() => {
@@ -343,86 +448,103 @@ export default function App() {
           <div className="config-box">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
               <h2 className="config-box-title" style={{ marginBottom: 0 }}>Configuration</h2>
-              <button className="run-btn" onClick={handleRun} disabled={isRunning}
-                style={{ marginTop: 0, width: "auto", padding: "5px 40px", fontSize: "10px" }}>
-                {isRunning ? "Running..." : "Run Query"}
-              </button>
+              {activeTab !== "Comparison" && activeTab !== "Engine2" && (
+                <button className="run-btn" onClick={handleRun} disabled={isRunning}
+                  style={{ marginTop: 0, width: "auto", padding: "5px 40px", fontSize: "10px" }}>
+                  {isRunning ? "Running..." : "Run Query"}
+                </button>
+              )}
             </div>
 
             <div className="select-row">
-              <div className="select-col">
-                <label className="field-label">JOB Query</label>
+              <div className="select-col" style={{ flex: "0 0 70px" }}>
+                <label className="field-label">Dataset</label>
+                <select className="field-select" value={dataset}
+                  onChange={(e) => {
+                    const ds = e.target.value;
+                    setDataset(ds);
+                    const queries = QUERY_LISTS[ds] || [];
+                    setSelectedQuery(queries[0] || "");
+                    setCustomSql("");
+                    setHasRun(false);
+                  }}>
+                  <option value="job">JOB</option>
+                  <option value="dsb">DSB</option>
+                </select>
+              </div>
+              <div className="select-col" style={{ flex: "0 0 60px" }}>
+                <label className="field-label">Query</label>
                 <select className="field-select" value={selectedQuery}
                   onChange={(e) => { setSelectedQuery(e.target.value); setHasRun(false); }}>
-                  {["1a","1b","1c","1d","2a","2b","2c","2d","3a","3b","3c",
-                    "4a","4b","4c","5a","5b","5c","6a","6b","6c","6d","6e","6f",
-                    "7a","7b","7c","8a","8b","8c","8d","9a","9b","9c","9d",
-                    "10a","10b","10c","11a","11b","11c","11d","12a","12b","12c",
-                    "13a","13b","13c","13d","14a","14b","14c","15a","15b","15c","15d",
-                    "16a","16b","16c","16d","17a","17b","17c","17d","17e","17f",
-                    "18a","18b","18c","19a","19b","19c","19d","20a","20b","20c",
-                    "21a","21b","21c","22a","22b","22c","22d","23a","23b","23c",
-                    "24a","24b","25a","25b","25c","26a","26b","26c",
-                    "27a","27b","27c","28a","28b","28c","29a","29b","29c",
-                    "30a","30b","30c","31a","31b","31c","32a","32b",
-                    "33a","33b","33c"].map(q => (
+                  {(QUERY_LISTS[dataset] || []).map(q => (
                     <option key={q} value={q}>{q}</option>
                   ))}
                 </select>
               </div>
-              <div className="select-col">
-                <label className="field-label">Scenario</label>
-                <select className="field-select" value={activeTab}
-                  onChange={(e) => {
-                    const tab = e.target.value;
-                    setActiveTab(tab);
-                    if (tab === "Engines") setSplitStrategy("relation-center");
-                    if (tab === "Strategies") setEngine("duckdb");
-                    setHasRun(false);
-                  }}>
-                  <option value="Pipeline">Pipeline</option>
-                  <option value="Engines">Scenario 1</option>
-                  <option value="Strategies">Scenario 2</option>
-                  <option value="Options">Scenario 3</option>
-                </select>
-              </div>
+              {activeTab !== "Comparison" && activeTab !== "Engine2" && (
+                <div className="select-col" style={{ flex: 1 }}>
+                  <label className="field-label">Scenario</label>
+                  <select className="field-select" value={activeTab}
+                    onChange={(e) => {
+                      const tab = e.target.value;
+                      setActiveTab(tab);
+                      if (tab === "Engines") setSplitStrategy("relation-center");
+                      if (tab === "Strategies") setEngine("duckdb");
+                      setHasRun(false);
+                    }}>
+                    <option value="Pipeline">Pipeline</option>
+                    <option value="Engines">Diff Engines</option>
+                    <option value="Strategies">Diff AQP Strategies</option>
+                    <option value="Options">Integration Levels</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             <label className="field-label">Vanilla SQL</label>
-            <textarea className="field-textarea" rows={activeTab === "Pipeline" ? 16 : 18}
+            <textarea className="field-textarea" rows={activeTab === "Pipeline" ? 18 : 20}
               placeholder="Enter your custom query here..."
               value={customSql}
               onChange={(e) => setCustomSql(e.target.value)} />
 
-            <div className="select-row">
-              {/* Engine — show on Pipeline, Strategies, Options */}
-              {activeTab !== "Engines" && (
-                <div className="select-col">
-                  <select className="field-select" value={engine}
-                    onChange={(e) => { setEngine(e.target.value); setHasRun(false); }}>
-                    {[["postgresql","PostgreSQL"],["duckdb","DuckDB"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l])=>(
-                      <option key={v} value={v}>{l}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+            {(activeTab === "Comparison" || activeTab === "Engine2") && (
+              <button className="run-btn" onClick={handleRun} disabled={isRunning}
+                style={{ marginTop: "8px" }}>
+                {isRunning ? "Running..." : "Run Query"}
+              </button>
+            )}
 
-              {/* AQP Strategy — show on Pipeline, Engines, Options */}
-              {activeTab !== "Strategies" && (
-                <div className="select-col">
-                  <select className="field-select" value={splitStrategy}
-                    onChange={(e) => { setSplitStrategy(e.target.value); setHasRun(false); }}>
-                    {[["relation-center","FK-Center"],["entity-center","PK-Center"],
-                      ["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l])=>(
-                      <option key={v} value={v}>{l}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
+            {activeTab !== "Comparison" && activeTab !== "Engine2" && (
+              <div className="select-row">
+                {/* Engine — show on Pipeline, Strategies, Options */}
+                {activeTab !== "Engines" && (
+                  <div className="select-col">
+                    <select className="field-select" value={engine}
+                      onChange={(e) => { setEngine(e.target.value); setHasRun(false); }}>
+                      {[["postgresql","PostgreSQL"],["duckdb","DuckDB"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l])=>(
+                        <option key={v} value={v}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-            {/* Options — hide on Options tab */}
-            {activeTab !== "Options" && (
+                {/* AQP Strategy — show on Pipeline, Engines, Options */}
+                {activeTab !== "Strategies" && (
+                  <div className="select-col">
+                    <select className="field-select" value={splitStrategy}
+                      onChange={(e) => { setSplitStrategy(e.target.value); setHasRun(false); }}>
+                      {[["relation-center","FK-Center"],["entity-center","PK-Center"],
+                        ["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l])=>(
+                        <option key={v} value={v}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Options — hide on Options, Comparison, and Engine2 tabs */}
+            {activeTab !== "Options" && activeTab !== "Comparison" && activeTab !== "Engine2" && (
               <div style={{ display: "flex", gap: "6px", marginTop: "8px" }}>
                 <button
                   type="button"
@@ -547,7 +669,289 @@ export default function App() {
                 </div>
               </div>
             </div>
-          ) : hasRun && data ? (() => {
+          ) : activeTab === "Engine2" ? (
+            <div className="comparison-layout">
+              {/* Config dropdowns */}
+              <div className="select-row" style={{ marginBottom: "8px" }}>
+                <div className="select-col">
+                  <label className="field-label">DB System</label>
+                  <select className="field-select" value={eng2Engine}
+                    onChange={(e) => { setEng2Engine(e.target.value); setHasRun(false); }}>
+                    {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="select-col">
+                  <label className="field-label">AQP Strategy</label>
+                  <select className="field-select" value={eng2Strategy}
+                    onChange={(e) => { setEng2Strategy(e.target.value); setHasRun(false); }}>
+                    {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="select-col">
+                  <label className="field-label">Integration</label>
+                  <select className="field-select" value={`${eng2Integration.ce},${eng2Integration.comb}`}
+                    onChange={(e) => {
+                      const [ce, comb] = e.target.value.split(",").map(v => v === "true");
+                      setEng2Integration({ ce, comb });
+                      setHasRun(false);
+                    }}>
+                    <option value="true,false">CE On · Comb Off</option>
+                    <option value="true,true">CE On · Comb On</option>
+                    <option value="false,false">CE Off · Comb Off</option>
+                    <option value="false,true">CE Off · Comb On</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Single pipeline result */}
+              <div className="comparison-content">
+                {isRunning ? (
+                  <div className="empty-state">
+                    <div className="empty-icon spin">&#9881;</div>
+                    <div className="empty-title">Processing query...</div>
+                  </div>
+                ) : hasRun && eng2Data ? (
+                  <>
+                    {eng2Data.error ? (
+                      <div className="run-error">{eng2Data.error}</div>
+                    ) : (
+                      <ScenarioPipeline data={eng2Data} activeNode={activeNode} setActiveNode={setActiveNode}
+                        useCombineArrow={eng2Integration.comb} />
+                    )}
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    <div className="empty-text">Select options and click <strong>Run Query</strong></div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : activeTab === "Comparison" ? (() => {
+            const ENGINE_LABELS = {"duckdb":"DuckDB","postgresql":"PostgreSQL","umbra":"Umbra","mariadb":"MariaDB","opengauss":"OpenGauss"};
+            const STRAT_LABELS = {"relation-center":"FK-Center","entity-center":"PK-Center","min-subquery":"Min-Subquery","node-based":"Node-Based"};
+            const INTEG_LABEL = (i) => `CE ${i.ce ? "On" : "Off"} · Comb ${i.comb ? "On" : "Off"}`;
+            const labelA = compDim === "engines" ? ENGINE_LABELS[compEngineA]
+              : compDim === "strategies" ? STRAT_LABELS[compStrategyA] : INTEG_LABEL(compIntegrationA);
+            const labelB = compDim === "engines" ? ENGINE_LABELS[compEngineB]
+              : compDim === "strategies" ? STRAT_LABELS[compStrategyB] : INTEG_LABEL(compIntegrationB);
+            const combA = compDim === "integration" ? compIntegrationA.comb : compIntegration.comb;
+            const combB = compDim === "integration" ? compIntegrationB.comb : compIntegration.comb;
+            return (
+            <div className="comparison-layout">
+              {/* 3 config boxes — click to select compare dimension */}
+              <div style={{ display: "flex", gap: "6px", marginBottom: "6px", fontSize: "11px" }}>
+                {/* DB Systems box */}
+                <div className="comp-dim-box" onClick={() => { setCompDim("engines"); setHasRun(false); }}
+                  style={{
+                    flex: compDim === "engines" ? 2 : 1,
+                    opacity: compDim === "engines" ? 1 : 0.5,
+                    border: compDim === "engines" ? "2px solid var(--accent)" : "2px solid var(--border)",
+                    borderRadius: "var(--radius)", padding: "5px 6px", cursor: "pointer",
+                    background: compDim === "engines" ? "var(--bg-card)" : "var(--bg-muted, #f5f6f8)",
+                    transition: "all 0.2s",
+                  }}>
+                  <div className="field-label" style={{ fontWeight: 700, marginBottom: "3px", fontSize: "10px" }}>DB Systems</div>
+                  {compDim === "engines" ? (
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <div style={{ flex: 1 }}>
+                        <select className="field-select" value={compEngineA}
+                          onChange={(e) => { setCompEngineA(e.target.value); setHasRun(false); }}>
+                          {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
+                            <option key={v} value={v}>{l}</option>))}
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <select className="field-select" value={compEngineB}
+                          onChange={(e) => { setCompEngineB(e.target.value); setHasRun(false); }}>
+                          {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
+                            <option key={v} value={v}>{l}</option>))}
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <select className="field-select" value={compEngine}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { setCompEngine(e.target.value); setHasRun(false); }}
+                      style={{ opacity: 0.7 }}>
+                      {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
+                        <option key={v} value={v}>{l}</option>))}
+                    </select>
+                  )}
+                </div>
+
+                {/* AQP Strategies box */}
+                <div className="comp-dim-box" onClick={() => { setCompDim("strategies"); setHasRun(false); }}
+                  style={{
+                    flex: compDim === "strategies" ? 2 : 1,
+                    opacity: compDim === "strategies" ? 1 : 0.5,
+                    border: compDim === "strategies" ? "2px solid var(--accent)" : "2px solid var(--border)",
+                    borderRadius: "var(--radius)", padding: "5px 6px", cursor: "pointer",
+                    background: compDim === "strategies" ? "var(--bg-card)" : "var(--bg-muted, #f5f6f8)",
+                    transition: "all 0.2s",
+                  }}>
+                  <div className="field-label" style={{ fontWeight: 700, marginBottom: "3px", fontSize: "10px" }}>AQP Strategies</div>
+                  {compDim === "strategies" ? (
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <div style={{ flex: 1 }}>
+                        <select className="field-select" value={compStrategyA}
+                          onChange={(e) => { setCompStrategyA(e.target.value); setHasRun(false); }}>
+                          {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
+                            <option key={v} value={v}>{l}</option>))}
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <select className="field-select" value={compStrategyB}
+                          onChange={(e) => { setCompStrategyB(e.target.value); setHasRun(false); }}>
+                          {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
+                            <option key={v} value={v}>{l}</option>))}
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <select className="field-select" value={compStrategy}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { setCompStrategy(e.target.value); setHasRun(false); }}
+                      style={{ opacity: 0.7 }}>
+                      {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
+                        <option key={v} value={v}>{l}</option>))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Integration Level box */}
+                <div className="comp-dim-box" onClick={() => { setCompDim("integration"); setHasRun(false); }}
+                  style={{
+                    flex: compDim === "integration" ? 2 : 1,
+                    opacity: compDim === "integration" ? 1 : 0.5,
+                    border: compDim === "integration" ? "2px solid var(--accent)" : "2px solid var(--border)",
+                    borderRadius: "var(--radius)", padding: "5px 6px", cursor: "pointer",
+                    background: compDim === "integration" ? "var(--bg-card)" : "var(--bg-muted, #f5f6f8)",
+                    transition: "all 0.2s",
+                  }}>
+                  <div className="field-label" style={{ fontWeight: 700, marginBottom: "3px", fontSize: "10px" }}>Integration Level</div>
+                  {compDim === "integration" ? (
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <div style={{ flex: 1 }}>
+                        <select className="field-select" value={`${compIntegrationA.ce},${compIntegrationA.comb}`}
+                          onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationA({ce,comb}); setHasRun(false); }}>
+                          <option value="true,false">CE On · Comb Off</option>
+                          <option value="true,true">CE On · Comb On</option>
+                          <option value="false,false">CE Off · Comb Off</option>
+                          <option value="false,true">CE Off · Comb On</option>
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <select className="field-select" value={`${compIntegrationB.ce},${compIntegrationB.comb}`}
+                          onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationB({ce,comb}); setHasRun(false); }}>
+                          <option value="true,false">CE On · Comb Off</option>
+                          <option value="true,true">CE On · Comb On</option>
+                          <option value="false,false">CE Off · Comb Off</option>
+                          <option value="false,true">CE Off · Comb On</option>
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <select className="field-select" value={`${compIntegration.ce},${compIntegration.comb}`}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegration({ce,comb}); setHasRun(false); }}
+                      style={{ opacity: 0.7 }}>
+                      <option value="true,false">CE On · Comb Off</option>
+                      <option value="true,true">CE On · Comb On</option>
+                      <option value="false,false">CE Off · Comb Off</option>
+                      <option value="false,true">CE Off · Comb On</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              {/* A/B comparison content */}
+              <div className="comparison-content">
+                {isRunning ? (
+                  <div className="empty-state">
+                    <div className="empty-icon spin">&#9881;</div>
+                    <div className="empty-title">Processing query...</div>
+                  </div>
+                ) : hasRun && (compDataA || compDataB) ? (
+                  <>
+                    <div className="comp-ab">
+                      {[compDataA, compDataB].map((d, idx) => (
+                        <div key={idx} className="comp-ab-col">
+                          <div className="comp-ab-label">{idx === 0 ? labelA : labelB}</div>
+                          <div style={{ padding: "10px" }}>
+                            {d ? (
+                              d.error ? <div className="run-error">{d.error}</div>
+                              : <ScenarioPipeline data={d} activeNode={scenarioNode} setActiveNode={setScenarioNode}
+                                  useCombineArrow={idx === 0 ? combA : combB}
+                                  hideResult hideTiming />
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="comp-bottom-row">
+                      {compDataA && !compDataA.error && compDataA.output.rows.length > 0 && (
+                        <div className="comp-shared-result" style={{ flex: 1, minWidth: 0 }}>
+                          <div className="perf-label">Query Result:</div>
+                          <div className="perf-table-wrap">
+                            <table className="perf-table">
+                              <thead><tr>
+                                {compDataA.output.columns.length > 0
+                                  ? compDataA.output.columns.map((c, i) => <th key={i}>{c}</th>)
+                                  : compDataA.output.rows[0].map((_, i) => <th key={i}>col {i + 1}</th>)}
+                              </tr></thead>
+                              <tbody>
+                                {compDataA.output.rows.slice(0, 5).map((row, i) => (
+                                  <tr key={i}>{row.map((val, j) => <td key={j}>{val}</td>)}</tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                      {(() => {
+                        const tA = compDataA?.timing;
+                        const tB = compDataB?.timing;
+                        const rows = [
+                          ["SQL Execution", tA?.sqlExecution, tB?.sqlExecution],
+                          ["Split Time", tA?.splitTime, tB?.splitTime],
+                          ["Others", tA?.others, tB?.others],
+                          ["Total", tA?.total, tB?.total],
+                        ];
+                        return (tA || tB) ? (
+                          <div className="comp-shared-result" style={{ flexShrink: 0 }}>
+                            <div className="perf-label">Timing Breakdown:</div>
+                            <div className="perf-table-wrap">
+                              <table className="perf-table">
+                                <thead><tr><th></th><th>{labelA}</th><th>{labelB}</th></tr></thead>
+                                <tbody>
+                                  {rows.map(([name, valA, valB], i) => (
+                                    <tr key={i} style={name === "Total" ? { fontWeight: 700, borderTop: "1px solid var(--border)" } : {}}>
+                                      <td>{name}</td>
+                                      <td>{valA != null ? `${valA.toFixed(2)} ms` : "—"}</td>
+                                      <td>{valB != null ? `${valB.toFixed(2)} ms` : "—"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    <div className="empty-text">Select A and B, then click <strong>Run Query</strong></div>
+                  </div>
+                )}
+              </div>
+            </div>
+            );
+          })() : hasRun && data ? (() => {
             /* Build temp table → color map: each temp gets the color of the round that created it */
             const tempColors = {};
             data.rounds.forEach(r => {
@@ -632,8 +1036,7 @@ export default function App() {
                         <div className="perf-label">Timing Breakdown:</div>
                         <div className="perf-timing-grid">
                           <span>SQL Execution</span><span>{data.timing.sqlExecution?.toFixed(2)} ms</span>
-                          <span>Fetch Tuples</span><span>{data.timing.fetchTuples?.toFixed(2)} ms</span>
-                          <span>Split Time</span><span>{data.timing.splitTime?.toFixed(2)} ms</span>
+                                <span>Split Time</span><span>{data.timing.splitTime?.toFixed(2)} ms</span>
                           <span>Others</span><span>{data.timing.others?.toFixed(2)} ms</span>
                           <span className="perf-timing-total">Total</span>
                           <span className="perf-timing-total">{data.timing.total?.toFixed(2)} ms</span>

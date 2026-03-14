@@ -11,13 +11,23 @@ app.use(express.json());
 
 /* ─── Paths ─────────────────────────────────────────────────────────────────── */
 const AQP_BIN = "/home/bita/Project/AQP_middleware/build_release/aqp_middleware";
-const BENCHMARK_DIR = "/home/bita/Project/benchmarks/JOB4AQP";
-const SCHEMA = path.join(BENCHMARK_DIR, "schema.sql");
-const FKEYS = path.join(BENCHMARK_DIR, "fkeys.sql");
+
+const DATASETS = {
+  job: {
+    dir: "/home/bita/Project/benchmarks/JOB4AQP",
+    schema: "/home/bita/Project/benchmarks/JOB4AQP/schema.sql",
+    fkeys: "/home/bita/Project/benchmarks/JOB4AQP/fkeys.sql",
+  },
+  dsb: {
+    dir: "/home/bita/Project/benchmarks/DSB4AQP",
+    schema: "/home/bita/Project/benchmarks/DSB4AQP/schema.sql",
+    fkeys: "/home/bita/Project/benchmarks/DSB4AQP/fkeys.sql",
+  },
+};
 
 /* Engine-specific DB connection strings */
 const ENGINE_DB = {
-  duckdb: path.join(BENCHMARK_DIR, "imdb.db"),
+  duckdb: path.join(DATASETS.job.dir, "imdb.db"),
   postgresql: "host=localhost port=5433 dbname=imdb user=bita",
   umbra: "host=localhost port=5432 user=postgres password=postgres",
   mariadb: "host=localhost dbname=imdb user=imdb",
@@ -103,7 +113,7 @@ function parseMiddlewareOutput(stdout) {
   }
 
   /* Combined Sub-Plan SQL (when --combine-sub-plans is used) */
-  const combinedMatch = stdout.match(/=== Combined Sub-Plan SQL ===\n([\s\S]*?)(?=\n=== Query Results ===|\n={3,}|$)/);
+  const combinedMatch = stdout.match(/=== Combined Sub-Plan SQL ===\n([\s\S]*?)(?=\n\[IRQuerySplitter\]|\n=== Query Results ===|$)/);
   if (combinedMatch) {
     result.combinedSql = combinedMatch[1].trim();
     /* Strip combined SQL from finalSql if it got appended */
@@ -125,7 +135,7 @@ function parseMiddlewareOutput(stdout) {
       color: colors[finalIdx % colors.length],
       irLabel: `Remaining IR ${finalIdx + 1}`,
       subIrLabel: "Final Sub-IR",
-      subSqlTitle: "Final SQL",
+      subSqlTitle: "Final Sub-SQL",
       subSql: result.finalSql,
       temp: { name: "result", rows: rowMatch ? parseInt(rowMatch[1]) : 0 },
     });
@@ -157,7 +167,7 @@ function parseMiddlewareOutput(stdout) {
 
 /* ─── Query file reader ────────────────────────────────────────────────────── */
 app.get("/api/query/:name", (req, res) => {
-  const queryFile = path.join(BENCHMARK_DIR, "queries", `${req.params.name}.sql`);
+  const queryFile = path.join(DATASETS.job.dir, "queries", `${req.params.name}.sql`);
   try {
     const sql = readFileSync(queryFile, "utf-8").trim();
     res.json({ sql });
@@ -182,14 +192,14 @@ app.post("/api/run", (req, res) => {
     writeFileSync(tmpFile, customSql);
     queryFile = tmpFile;
   } else {
-    queryFile = path.join(BENCHMARK_DIR, "queries", `${query}.sql`);
+    queryFile = path.join(DATASETS.job.dir, "queries", `${query}.sql`);
   }
 
   const args = [
     `--engine=${engine}`,
     `--db=${dbArg}`,
-    `--schema=${SCHEMA}`,
-    `--fkeys=${FKEYS}`,
+    `--schema=${DATASETS.job.schema}`,
+    `--fkeys=${DATASETS.job.fkeys}`,
     `--split=${splitArg}`,
     "--debug",
     "--timing",
@@ -208,11 +218,20 @@ app.post("/api/run", (req, res) => {
   try { unlinkSync(csvPath); } catch {}
 
   const startTime = Date.now();
-  execFile(AQP_BIN, args, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+  const execEnv = engine === "opengauss"
+    ? { ...process.env, LD_LIBRARY_PATH: path.join(process.env.HOME, "gauss_compat_libs") + (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : "") }
+    : process.env;
+  execFile(AQP_BIN, args, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, env: execEnv }, (err, stdout, stderr) => {
     const totalTime = Date.now() - startTime;
     if (tmpFile) try { unlinkSync(tmpFile); } catch {}
-    if (err && !stdout) {
-      return res.status(500).json({ error: err.message, stderr });
+    console.log("[DEBUG] err:", err ? err.code : null, "stderr:", (stderr||"").substring(0,100), "stdout has Error:", (stdout||"").includes("Error:"));
+    if (err) {
+      const stderrMsg = (stderr || "").trim();
+      const errDetail = stderrMsg || err.message;
+      // Check stderr or stdout for error messages
+      if (!stdout || stderrMsg.includes("Error") || stdout.includes("Error:") || !stdout.includes("Iteration")) {
+        return res.status(500).json({ error: errDetail });
+      }
     }
 
     try {
@@ -239,16 +258,15 @@ app.post("/api/run", (req, res) => {
         let preprocess = vals[3] || 0;
         let convertPlanToIR = vals[4] || 0;
 
-        /* DuckDB fix: for DuckDB + Node-Based, remove convert_plan_to_IR;
-           for DuckDB + other strategies, swap preprocess and convert_plan_to_IR */
-        if (engine === "duckdb") {
-          if (splitArg === "nodebased") {
-            convertPlanToIR = 0;
-          } else {
-            const tmp = preprocess;
-            preprocess = convertPlanToIR;
-            convertPlanToIR = tmp;
-          }
+        /* For Node-Based, convert_plan_to_IR is 0;
+           for other strategies, swap preprocess and convert_plan_to_IR
+           (the CSV outputs them in reversed order for all engines) */
+        if (splitArg === "nodebased") {
+          convertPlanToIR = 0;
+        } else {
+          const tmp = preprocess;
+          preprocess = convertPlanToIR;
+          convertPlanToIR = tmp;
         }
 
         /* Fixed end: last 3 values */
