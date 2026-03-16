@@ -1071,7 +1071,7 @@ body {
 }
 
 .comp-shared-result:last-child {
-  flex: 1;
+  flex: 1.8;
 }
 
 /* ─── Scrollbar ──────────────────────────────────────────────────────────── */
