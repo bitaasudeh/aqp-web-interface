@@ -80,7 +80,7 @@ function parseMiddlewareOutput(stdout) {
   }
 
   /* Build rounds */
-  const colors = ["#EE6677", "#AA3377", "#FE6100", "#CCBB00"];
+  const colors = ["#E53E3E", "#2B6CB0", "#38A169", "#D69E2E", "#9F46E4", "#DD6B20", "#00B5D8", "#E53E8C"];
   const iterNums = Object.keys(subSqls).sort((a, b) => a - b);
   for (const num of iterNums) {
     const idx = parseInt(num) - 1;

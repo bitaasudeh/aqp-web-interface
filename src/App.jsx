@@ -190,21 +190,14 @@ function ScenarioPipeline({ data, activeNode, setActiveNode, useCombineArrow = f
         const round = data.rounds.find(r => r.roundNum === activeNode);
         if (!round) return null;
         return (
-          <div className="node-detail" style={{ borderColor: round.color }}>
-            <div className="node-detail-header">
-              <span className="node-detail-title" style={{ color: round.color }}>{round.subSqlTitle}</span>
-              <span className="node-detail-meta">
-                {round.temp.name} &middot; {round.temp.rows.toLocaleString()} rows
-                {round.temp.time != null && ` \u00b7 ${round.temp.time.toFixed(1)} ms`}
-              </span>
-            </div>
+          <div className="node-detail" style={{ borderColor: round.color, backgroundColor: `${round.color}10` }}>
             <SqlBlock sql={round.subSql} fontSize={11} tempColors={tempColors} />
           </div>
         );
       })()}
 
       {activeNode === "combined" && data.combinedSql && (
-        <div className="node-detail" style={{ borderColor: "var(--accent-violet)" }}>
+        <div className="node-detail" style={{ borderColor: "var(--accent-violet)", backgroundColor: "rgba(139, 92, 246, 0.06)" }}>
           <div className="node-detail-header">
             <span className="node-detail-title" style={{ color: "var(--accent-violet)" }}>Combined SQL</span>
           </div>
@@ -457,7 +450,7 @@ export default function App() {
             </div>
 
             <div className="select-row">
-              <div className="select-col" style={{ flex: "0 0 70px" }}>
+              <div className="select-col" style={{ flex: "0 0 130px" }}>
                 <label className="field-label">Dataset</label>
                 <select className="field-select" value={dataset}
                   onChange={(e) => {
@@ -472,7 +465,7 @@ export default function App() {
                   <option value="dsb">DSB</option>
                 </select>
               </div>
-              <div className="select-col" style={{ flex: "0 0 60px" }}>
+              <div className="select-col" style={{ flex: "0 0 130px" }}>
                 <label className="field-label">Query</label>
                 <select className="field-select" value={selectedQuery}
                   onChange={(e) => { setSelectedQuery(e.target.value); setHasRun(false); }}>
@@ -509,7 +502,7 @@ export default function App() {
 
             {(activeTab === "Comparison" || activeTab === "Engine2") && (
               <button className="run-btn" onClick={handleRun} disabled={isRunning}
-                style={{ marginTop: "8px" }}>
+                style={{ marginTop: "2px" }}>
                 {isRunning ? "Running..." : "Run Query"}
               </button>
             )}
@@ -671,40 +664,41 @@ export default function App() {
             </div>
           ) : activeTab === "Engine2" ? (
             <div className="comparison-layout">
-              {/* Config dropdowns */}
-              <div className="select-row" style={{ marginBottom: "8px" }}>
-                <div className="select-col">
-                  <label className="field-label">DB System</label>
-                  <select className="field-select" value={eng2Engine}
-                    onChange={(e) => { setEng2Engine(e.target.value); setHasRun(false); }}>
-                    {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
-                      <option key={v} value={v}>{l}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="select-col">
-                  <label className="field-label">AQP Strategy</label>
-                  <select className="field-select" value={eng2Strategy}
-                    onChange={(e) => { setEng2Strategy(e.target.value); setHasRun(false); }}>
-                    {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
-                      <option key={v} value={v}>{l}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="select-col">
-                  <label className="field-label">Integration</label>
-                  <select className="field-select" value={`${eng2Integration.ce},${eng2Integration.comb}`}
-                    onChange={(e) => {
-                      const [ce, comb] = e.target.value.split(",").map(v => v === "true");
-                      setEng2Integration({ ce, comb });
-                      setHasRun(false);
-                    }}>
-                    <option value="true,false">CE On · Comb Off</option>
-                    <option value="true,true">CE On · Comb On</option>
-                    <option value="false,false">CE Off · Comb Off</option>
-                    <option value="false,true">CE Off · Comb On</option>
-                  </select>
-                </div>
+              {/* 3-column tab buttons */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0", marginBottom: "4px" }}>
+                {[["engines","DB Systems"],["strategies","AQP Strategies"],["integration","Integration Level"]].map(([key,label]) => (
+                  <button key={key} onClick={() => { setEng2Tab(key); setHasRun(false); }}
+                    style={{
+                      padding: "4px 8px", fontSize: "10px", fontWeight: 700, cursor: "pointer",
+                      border: "1px solid var(--border)",
+                      borderBottom: eng2Tab === key ? "4px solid #0A7B71" : "1px solid var(--border)",
+                      background: eng2Tab === key ? "#0D9488" : "var(--surface-sunken)",
+                      color: eng2Tab === key ? "#fff" : "var(--ink-secondary)",
+                      transition: "all 0.15s",
+                    }}>{label}</button>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px", fontSize: "10px" }}>
+                <select className="field-select" value={eng2Engine}
+                  style={{ opacity: eng2Tab === "engines" ? 1 : 0.6 }}
+                  onChange={(e) => { setEng2Engine(e.target.value); setHasRun(false); }}>
+                  {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
+                    <option key={v} value={v}>{l}</option>))}
+                </select>
+                <select className="field-select" value={eng2Strategy}
+                  style={{ opacity: eng2Tab === "strategies" ? 1 : 0.6 }}
+                  onChange={(e) => { setEng2Strategy(e.target.value); setHasRun(false); }}>
+                  {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
+                    <option key={v} value={v}>{l}</option>))}
+                </select>
+                <select className="field-select" value={`${eng2Integration.ce},${eng2Integration.comb}`}
+                  style={{ opacity: eng2Tab === "integration" ? 1 : 0.6 }}
+                  onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setEng2Integration({ce,comb}); setHasRun(false); }}>
+                  <option value="true,false">CE On · Comb Off</option>
+                  <option value="true,true">CE On · Comb On</option>
+                  <option value="false,false">CE Off · Comb Off</option>
+                  <option value="false,true">CE Off · Comb On</option>
+                </select>
               </div>
 
               {/* Single pipeline result */}
@@ -719,8 +713,52 @@ export default function App() {
                     {eng2Data.error ? (
                       <div className="run-error">{eng2Data.error}</div>
                     ) : (
-                      <ScenarioPipeline data={eng2Data} activeNode={activeNode} setActiveNode={setActiveNode}
-                        useCombineArrow={eng2Integration.comb} />
+                      <>
+                        <ScenarioPipeline data={eng2Data} activeNode={activeNode} setActiveNode={setActiveNode}
+                          useCombineArrow={eng2Integration.comb} hideResult hideTiming />
+                        <div className="comp-bottom-row">
+                          {eng2Data.output.rows.length > 0 && (
+                            <div className="comp-shared-result">
+                              <div className="perf-label">Query Result:</div>
+                              <div className="perf-table-wrap">
+                                <table className="perf-table">
+                                  <thead><tr>
+                                    {eng2Data.output.columns.length > 0
+                                      ? eng2Data.output.columns.map((c, i) => <th key={i}>{c}</th>)
+                                      : eng2Data.output.rows[0].map((_, i) => <th key={i}>col {i + 1}</th>)}
+                                  </tr></thead>
+                                  <tbody>
+                                    {eng2Data.output.rows.slice(0, 5).map((row, i) => (
+                                      <tr key={i}>{row.map((val, j) => <td key={j}>{val}</td>)}</tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                          {eng2Data.timing && (
+                            <div className="comp-shared-result">
+                              <div className="perf-label">Timing Breakdown:</div>
+                              <div className="perf-table-wrap">
+                                <table className="perf-table">
+                                  <thead><tr>
+                                    {["SQL Execution", "Split Time", "Others", "Total"].map((c,i) => (
+                                      <th key={i} style={c === "Total" ? { fontWeight: 700 } : {}}>{c}</th>
+                                    ))}
+                                  </tr></thead>
+                                  <tbody>
+                                    <tr>
+                                      {[eng2Data.timing.sqlExecution, eng2Data.timing.splitTime, eng2Data.timing.others, eng2Data.timing.total].map((v,i) => (
+                                        <td key={i} style={i === 3 ? { fontWeight: 700 } : {}}>{v != null ? `${v.toFixed(2)} ms` : "—"}</td>
+                                      ))}
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </>
                     )}
                   </>
                 ) : (
@@ -743,129 +781,93 @@ export default function App() {
             return (
             <div className="comparison-layout">
               {/* 3 config boxes — click to select compare dimension */}
-              <div style={{ display: "flex", gap: "6px", marginBottom: "6px", fontSize: "11px" }}>
-                {/* DB Systems box */}
-                <div className="comp-dim-box" onClick={() => { setCompDim("engines"); setHasRun(false); }}
-                  style={{
-                    flex: compDim === "engines" ? 2 : 1,
-                    opacity: compDim === "engines" ? 1 : 0.5,
-                    border: compDim === "engines" ? "2px solid var(--accent)" : "2px solid var(--border)",
-                    borderRadius: "var(--radius)", padding: "5px 6px", cursor: "pointer",
-                    background: compDim === "engines" ? "var(--bg-card)" : "var(--bg-muted, #f5f6f8)",
-                    transition: "all 0.2s",
-                  }}>
-                  <div className="field-label" style={{ fontWeight: 700, marginBottom: "3px", fontSize: "10px" }}>DB Systems</div>
-                  {compDim === "engines" ? (
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <div style={{ flex: 1 }}>
-                        <select className="field-select" value={compEngineA}
-                          onChange={(e) => { setCompEngineA(e.target.value); setHasRun(false); }}>
-                          {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
-                            <option key={v} value={v}>{l}</option>))}
-                        </select>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <select className="field-select" value={compEngineB}
-                          onChange={(e) => { setCompEngineB(e.target.value); setHasRun(false); }}>
-                          {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
-                            <option key={v} value={v}>{l}</option>))}
-                        </select>
-                      </div>
-                    </div>
-                  ) : (
-                    <select className="field-select" value={compEngine}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => { setCompEngine(e.target.value); setHasRun(false); }}
-                      style={{ opacity: 0.7 }}>
+              {/* 3-column grid: tabs on top, dropdowns below aligned */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0", marginBottom: "4px" }}>
+                {[["engines","DB Systems"],["strategies","AQP Strategies"],["integration","Integration Level"]].map(([key,label]) => (
+                  <button key={key} onClick={() => { setCompDim(key); setHasRun(false); }}
+                    style={{
+                      padding: "4px 8px", fontSize: "10px", fontWeight: 700, cursor: "pointer",
+                      border: "1px solid var(--border)",
+                      borderBottom: compDim === key ? "4px solid #0A7B71" : "1px solid var(--border)",
+                      background: compDim === key ? "#0D9488" : "var(--surface-sunken)",
+                      color: compDim === key ? "#fff" : "var(--ink-secondary)",
+                      transition: "all 0.15s",
+                    }}>{label}</button>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px", fontSize: "10px" }}>
+                {/* DB Systems column */}
+                {compDim === "engines" ? (
+                  <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
+                    <select className="field-select" value={compEngineA} style={{ flex: 1 }}
+                      onChange={(e) => { setCompEngineA(e.target.value); setHasRun(false); }}>
                       {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
                         <option key={v} value={v}>{l}</option>))}
                     </select>
-                  )}
-                </div>
-
-                {/* AQP Strategies box */}
-                <div className="comp-dim-box" onClick={() => { setCompDim("strategies"); setHasRun(false); }}
-                  style={{
-                    flex: compDim === "strategies" ? 2 : 1,
-                    opacity: compDim === "strategies" ? 1 : 0.5,
-                    border: compDim === "strategies" ? "2px solid var(--accent)" : "2px solid var(--border)",
-                    borderRadius: "var(--radius)", padding: "5px 6px", cursor: "pointer",
-                    background: compDim === "strategies" ? "var(--bg-card)" : "var(--bg-muted, #f5f6f8)",
-                    transition: "all 0.2s",
-                  }}>
-                  <div className="field-label" style={{ fontWeight: 700, marginBottom: "3px", fontSize: "10px" }}>AQP Strategies</div>
-                  {compDim === "strategies" ? (
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <div style={{ flex: 1 }}>
-                        <select className="field-select" value={compStrategyA}
-                          onChange={(e) => { setCompStrategyA(e.target.value); setHasRun(false); }}>
-                          {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
-                            <option key={v} value={v}>{l}</option>))}
-                        </select>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <select className="field-select" value={compStrategyB}
-                          onChange={(e) => { setCompStrategyB(e.target.value); setHasRun(false); }}>
-                          {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
-                            <option key={v} value={v}>{l}</option>))}
-                        </select>
-                      </div>
-                    </div>
-                  ) : (
-                    <select className="field-select" value={compStrategy}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => { setCompStrategy(e.target.value); setHasRun(false); }}
-                      style={{ opacity: 0.7 }}>
+                    <span style={{ color: "var(--ink-muted)", fontSize: "9px" }}>vs</span>
+                    <select className="field-select" value={compEngineB} style={{ flex: 1 }}
+                      onChange={(e) => { setCompEngineB(e.target.value); setHasRun(false); }}>
+                      {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
+                        <option key={v} value={v}>{l}</option>))}
+                    </select>
+                  </div>
+                ) : (
+                  <select className="field-select" value={compEngine} style={{ opacity: 0.6 }}
+                    onChange={(e) => { setCompEngine(e.target.value); setHasRun(false); }}>
+                    {[["duckdb","DuckDB"],["postgresql","PostgreSQL"],["umbra","Umbra"],["mariadb","MariaDB"],["opengauss","OpenGauss"]].map(([v,l]) => (
+                      <option key={v} value={v}>{l}</option>))}
+                  </select>
+                )}
+                {/* AQP Strategies column */}
+                {compDim === "strategies" ? (
+                  <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
+                    <select className="field-select" value={compStrategyA} style={{ flex: 1 }}
+                      onChange={(e) => { setCompStrategyA(e.target.value); setHasRun(false); }}>
                       {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
                         <option key={v} value={v}>{l}</option>))}
                     </select>
-                  )}
-                </div>
-
-                {/* Integration Level box */}
-                <div className="comp-dim-box" onClick={() => { setCompDim("integration"); setHasRun(false); }}
-                  style={{
-                    flex: compDim === "integration" ? 2 : 1,
-                    opacity: compDim === "integration" ? 1 : 0.5,
-                    border: compDim === "integration" ? "2px solid var(--accent)" : "2px solid var(--border)",
-                    borderRadius: "var(--radius)", padding: "5px 6px", cursor: "pointer",
-                    background: compDim === "integration" ? "var(--bg-card)" : "var(--bg-muted, #f5f6f8)",
-                    transition: "all 0.2s",
-                  }}>
-                  <div className="field-label" style={{ fontWeight: 700, marginBottom: "3px", fontSize: "10px" }}>Integration Level</div>
-                  {compDim === "integration" ? (
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <div style={{ flex: 1 }}>
-                        <select className="field-select" value={`${compIntegrationA.ce},${compIntegrationA.comb}`}
-                          onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationA({ce,comb}); setHasRun(false); }}>
-                          <option value="true,false">CE On · Comb Off</option>
-                          <option value="true,true">CE On · Comb On</option>
-                          <option value="false,false">CE Off · Comb Off</option>
-                          <option value="false,true">CE Off · Comb On</option>
-                        </select>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <select className="field-select" value={`${compIntegrationB.ce},${compIntegrationB.comb}`}
-                          onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationB({ce,comb}); setHasRun(false); }}>
-                          <option value="true,false">CE On · Comb Off</option>
-                          <option value="true,true">CE On · Comb On</option>
-                          <option value="false,false">CE Off · Comb Off</option>
-                          <option value="false,true">CE Off · Comb On</option>
-                        </select>
-                      </div>
-                    </div>
-                  ) : (
-                    <select className="field-select" value={`${compIntegration.ce},${compIntegration.comb}`}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegration({ce,comb}); setHasRun(false); }}
-                      style={{ opacity: 0.7 }}>
+                    <span style={{ color: "var(--ink-muted)", fontSize: "9px" }}>vs</span>
+                    <select className="field-select" value={compStrategyB} style={{ flex: 1 }}
+                      onChange={(e) => { setCompStrategyB(e.target.value); setHasRun(false); }}>
+                      {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
+                        <option key={v} value={v}>{l}</option>))}
+                    </select>
+                  </div>
+                ) : (
+                  <select className="field-select" value={compStrategy} style={{ opacity: 0.6 }}
+                    onChange={(e) => { setCompStrategy(e.target.value); setHasRun(false); }}>
+                    {[["relation-center","FK-Center"],["entity-center","PK-Center"],["min-subquery","Min-Subquery"],["node-based","Node-Based"]].map(([v,l]) => (
+                      <option key={v} value={v}>{l}</option>))}
+                  </select>
+                )}
+                {/* Integration Level column */}
+                {compDim === "integration" ? (
+                  <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
+                    <select className="field-select" value={`${compIntegrationA.ce},${compIntegrationA.comb}`} style={{ flex: 1 }}
+                      onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationA({ce,comb}); setHasRun(false); }}>
                       <option value="true,false">CE On · Comb Off</option>
                       <option value="true,true">CE On · Comb On</option>
                       <option value="false,false">CE Off · Comb Off</option>
                       <option value="false,true">CE Off · Comb On</option>
                     </select>
-                  )}
-                </div>
+                    <span style={{ color: "var(--ink-muted)", fontSize: "9px" }}>vs</span>
+                    <select className="field-select" value={`${compIntegrationB.ce},${compIntegrationB.comb}`} style={{ flex: 1 }}
+                      onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationB({ce,comb}); setHasRun(false); }}>
+                      <option value="true,false">CE On · Comb Off</option>
+                      <option value="true,true">CE On · Comb On</option>
+                      <option value="false,false">CE Off · Comb Off</option>
+                      <option value="false,true">CE Off · Comb On</option>
+                    </select>
+                  </div>
+                ) : (
+                  <select className="field-select" value={`${compIntegration.ce},${compIntegration.comb}`} style={{ opacity: 0.6 }}
+                    onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegration({ce,comb}); setHasRun(false); }}>
+                    <option value="true,false">CE On · Comb Off</option>
+                    <option value="true,true">CE On · Comb On</option>
+                    <option value="false,false">CE Off · Comb Off</option>
+                    <option value="false,true">CE Off · Comb On</option>
+                  </select>
+                )}
               </div>
 
               {/* A/B comparison content */}
@@ -894,7 +896,7 @@ export default function App() {
                     </div>
                     <div className="comp-bottom-row">
                       {compDataA && !compDataA.error && compDataA.output.rows.length > 0 && (
-                        <div className="comp-shared-result" style={{ flex: 1, minWidth: 0 }}>
+                        <div className="comp-shared-result">
                           <div className="perf-label">Query Result:</div>
                           <div className="perf-table-wrap">
                             <table className="perf-table">
@@ -915,26 +917,18 @@ export default function App() {
                       {(() => {
                         const tA = compDataA?.timing;
                         const tB = compDataB?.timing;
-                        const rows = [
-                          ["SQL Execution", tA?.sqlExecution, tB?.sqlExecution],
-                          ["Split Time", tA?.splitTime, tB?.splitTime],
-                          ["Others", tA?.others, tB?.others],
-                          ["Total", tA?.total, tB?.total],
-                        ];
+                        const cols = ["SQL Execution", "Split Time", "Others", "Total"];
+                        const valsA = [tA?.sqlExecution, tA?.splitTime, tA?.others, tA?.total];
+                        const valsB = [tB?.sqlExecution, tB?.splitTime, tB?.others, tB?.total];
                         return (tA || tB) ? (
-                          <div className="comp-shared-result" style={{ flexShrink: 0 }}>
+                          <div className="comp-shared-result">
                             <div className="perf-label">Timing Breakdown:</div>
                             <div className="perf-table-wrap">
                               <table className="perf-table">
-                                <thead><tr><th></th><th>{labelA}</th><th>{labelB}</th></tr></thead>
+                                <thead><tr><th></th>{cols.map((c,i) => <th key={i} style={c === "Total" ? { fontWeight: 700 } : {}}>{c}</th>)}</tr></thead>
                                 <tbody>
-                                  {rows.map(([name, valA, valB], i) => (
-                                    <tr key={i} style={name === "Total" ? { fontWeight: 700, borderTop: "1px solid var(--border)" } : {}}>
-                                      <td>{name}</td>
-                                      <td>{valA != null ? `${valA.toFixed(2)} ms` : "—"}</td>
-                                      <td>{valB != null ? `${valB.toFixed(2)} ms` : "—"}</td>
-                                    </tr>
-                                  ))}
+                                  <tr><td>{labelA}</td>{valsA.map((v,i) => <td key={i} style={i === 3 ? { fontWeight: 700 } : {}}>{v != null ? `${v.toFixed(2)} ms` : "—"}</td>)}</tr>
+                                  <tr><td>{labelB}</td>{valsB.map((v,i) => <td key={i} style={i === 3 ? { fontWeight: 700 } : {}}>{v != null ? `${v.toFixed(2)} ms` : "—"}</td>)}</tr>
                                 </tbody>
                               </table>
                             </div>
@@ -982,16 +976,7 @@ export default function App() {
                 const round = data.rounds.find(r => r.roundNum === activeNode);
                 if (!round) return null;
                 return (
-                  <div className="node-detail" style={{ borderColor: round.color }}>
-                    <div className="node-detail-header">
-                      <span className="node-detail-title" style={{ color: round.color }}>
-                        {round.subSqlTitle}
-                      </span>
-                      <span className="node-detail-meta">
-                        {round.temp.name} &middot; {round.temp.rows.toLocaleString()} rows
-                        {round.temp.time != null && ` \u00b7 ${round.temp.time.toFixed(1)} ms`}
-                      </span>
-                    </div>
+                  <div className="node-detail" style={{ borderColor: round.color, backgroundColor: `${round.color}10` }}>
                     <SqlBlock sql={round.subSql} fontSize={11} tempColors={tempColors} />
                   </div>
                 );
