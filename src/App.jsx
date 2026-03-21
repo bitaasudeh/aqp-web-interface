@@ -281,7 +281,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("Pipeline");
   const [activeEngine, setActiveEngine] = useState("DuckDB");
   const [activeStrategy, setActiveStrategy] = useState("FK-Center");
-  const [activeOption, setActiveOption] = useState("CE On | Combiner On");
+  const [activeOption, setActiveOption] = useState("CU On | Combiner On");
   const [scenarioData, setScenarioData] = useState({});
   const [scenarioNode, setScenarioNode] = useState(null);
   const [compDim, setCompDim] = useState("engines"); // what to compare: engines, strategies, integration
@@ -360,10 +360,10 @@ export default function App() {
         setHasRun(true);
       } else if (activeTab === "Options") {
         const combos = [
-          ["CE On | Combiner On", true, true],
-          ["CE On | Combiner Off", true, false],
-          ["CE Off | Combiner On", false, true],
-          ["CE Off | Combiner Off", false, false],
+          ["CU On | Combiner On", true, true],
+          ["CU On | Combiner Off", true, false],
+          ["CU Off | Combiner On", false, true],
+          ["CU Off | Combiner Off", false, false],
         ];
         const results = {};
         for (const [label, ce, comb] of combos) {
@@ -542,7 +542,7 @@ export default function App() {
                     color: cardinalityEstimator ? "#fff" : "#697386",
                   }}
                   onClick={() => { setCardinalityEstimator(!cardinalityEstimator); setHasRun(false); }}
-                >Cardinality Estimator</button>
+                >Cardinality Updater</button>
                 <button
                   type="button"
                   style={{
@@ -631,7 +631,7 @@ export default function App() {
               <div className="scenario-label">Same engine ({{"postgresql":"PostgreSQL","duckdb":"DuckDB","umbra":"Umbra","mariadb":"MariaDB","opengauss":"OpenGauss"}[engine]}) &amp; strategy ({{"relation-center":"FK-Center","entity-center":"PK-Center","min-subquery":"Min-Subquery","node-based":"Node-Based"}[splitStrategy]}) with different options</div>
               <div className="scenario-box">
                 <div className="scenario-tabs">
-                  {["CE On | Combiner On","CE On | Combiner Off","CE Off | Combiner On","CE Off | Combiner Off"].map(opt => (
+                  {["CU On | Combiner On","CU On | Combiner Off","CU Off | Combiner On","CU Off | Combiner Off"].map(opt => (
                     <button key={opt}
                       className={`scenario-tab ${activeOption === opt ? "scenario-tab-active" : ""}`}
                       onClick={() => { setActiveOption(opt); setScenarioNode(null); }}>
@@ -687,10 +687,10 @@ export default function App() {
                 <select className="field-select" value={`${eng2Integration.ce},${eng2Integration.comb}`}
                   style={{ opacity: eng2Tab === "integration" ? 1 : 0.6 }}
                   onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setEng2Integration({ce,comb}); setHasRun(false); }}>
-                  <option value="true,false">CE On · Combiner Off</option>
-                  <option value="true,true">CE On · Combiner On</option>
-                  <option value="false,false">CE Off · Combiner Off</option>
-                  <option value="false,true">CE Off · Combiner On</option>
+                  <option value="true,false">CU On · Combiner Off</option>
+                  <option value="true,true">CU On · Combiner On</option>
+                  <option value="false,false">CU Off · Combiner Off</option>
+                  <option value="false,true">CU Off · Combiner On</option>
                 </select>
               </div>
 
@@ -764,7 +764,7 @@ export default function App() {
           ) : activeTab === "Comparison" ? (() => {
             const ENGINE_LABELS = {"duckdb":"DuckDB","postgresql":"PostgreSQL","umbra":"Umbra","mariadb":"MariaDB","opengauss":"OpenGauss"};
             const STRAT_LABELS = {"relation-center":"FK-Center","entity-center":"PK-Center","min-subquery":"Min-Subquery","node-based":"Node-Based"};
-            const INTEG_LABEL = (i) => `CE ${i.ce ? "On" : "Off"} · ${i.comb ? "Combined" : "Splitted"}`;
+            const INTEG_LABEL = (i) => `CU ${i.ce ? "On" : "Off"} · ${i.comb ? "Combined" : "Splitted"}`;
             const labelA = compDim === "engines" ? ENGINE_LABELS[compEngineA]
               : compDim === "strategies" ? STRAT_LABELS[compStrategyA] : INTEG_LABEL(compIntegrationA);
             const labelB = compDim === "engines" ? ENGINE_LABELS[compEngineB]
@@ -837,27 +837,27 @@ export default function App() {
                   <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
                     <select className="field-select" value={`${compIntegrationA.ce},${compIntegrationA.comb}`} style={{ flex: 1 }}
                       onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationA({ce,comb}); setHasRun(false); }}>
-                      <option value="true,false">CE On · Splitted</option>
-                      <option value="true,true">CE On · Combined</option>
-                      <option value="false,false">CE Off · Splitted</option>
-                      <option value="false,true">CE Off · Combined</option>
+                      <option value="true,false">CU On · Splitted</option>
+                      <option value="true,true">CU On · Combined</option>
+                      <option value="false,false">CU Off · Splitted</option>
+                      <option value="false,true">CU Off · Combined</option>
                     </select>
                     <span style={{ color: "var(--ink-muted)", fontSize: "9px" }}>vs</span>
                     <select className="field-select" value={`${compIntegrationB.ce},${compIntegrationB.comb}`} style={{ flex: 1 }}
                       onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegrationB({ce,comb}); setHasRun(false); }}>
-                      <option value="true,false">CE On · Splitted</option>
-                      <option value="true,true">CE On · Combined</option>
-                      <option value="false,false">CE Off · Splitted</option>
-                      <option value="false,true">CE Off · Combined</option>
+                      <option value="true,false">CU On · Splitted</option>
+                      <option value="true,true">CU On · Combined</option>
+                      <option value="false,false">CU Off · Splitted</option>
+                      <option value="false,true">CU Off · Combined</option>
                     </select>
                   </div>
                 ) : (
                   <select className="field-select" value={`${compIntegration.ce},${compIntegration.comb}`} style={{ opacity: 0.6 }}
                     onChange={(e) => { const [ce,comb] = e.target.value.split(",").map(v=>v==="true"); setCompIntegration({ce,comb}); setHasRun(false); }}>
-                    <option value="true,false">CE On · Splitted</option>
-                    <option value="true,true">CE On · Combined</option>
-                    <option value="false,false">CE Off · Splitted</option>
-                    <option value="false,true">CE Off · Combined</option>
+                    <option value="true,false">CU On · Splitted</option>
+                    <option value="true,true">CU On · Combined</option>
+                    <option value="false,false">CU Off · Splitted</option>
+                    <option value="false,true">CU Off · Combined</option>
                   </select>
                 )}
               </div>
