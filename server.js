@@ -4,35 +4,20 @@ import { execFile } from "child_process";
 import { readFileSync, writeFileSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-/* ─── Paths ─────────────────────────────────────────────────────────────────── */
-const AQP_BIN = "/home/bita/Project/AQP_middleware/build_release/aqp_middleware";
+/* ─── Config (machine-specific paths) ───────────────────────────────────────── */
+const cfg = JSON.parse(readFileSync(path.join(__dirname, "config.default.json"), "utf-8"));
 
-const DATASETS = {
-  job: {
-    dir: "/home/bita/Project/benchmarks/JOB4AQP",
-    schema: "/home/bita/Project/benchmarks/JOB4AQP/schema.sql",
-    fkeys: "/home/bita/Project/benchmarks/JOB4AQP/fkeys.sql",
-  },
-  dsb: {
-    dir: "/home/bita/Project/benchmarks/DSB4AQP",
-    schema: "/home/bita/Project/benchmarks/DSB4AQP/schema.sql",
-    fkeys: "/home/bita/Project/benchmarks/DSB4AQP/fkeys.sql",
-  },
-};
-
-/* Engine-specific DB connection strings */
-const ENGINE_DB = {
-  duckdb: path.join(DATASETS.job.dir, "imdb.db"),
-  postgresql: "host=localhost port=5433 dbname=imdb user=bita",
-  umbra: "host=localhost port=5432 user=postgres password=postgres",
-  mariadb: "host=localhost dbname=imdb user=imdb",
-  opengauss: "host=localhost port=7654 dbname=imdb user=imdb password=imdb_132",
-};
+const AQP_BIN = cfg.aqpBin;
+const DATASETS = cfg.datasets;
+const ENGINE_DB = cfg.engineDb;
 
 /* Map frontend split names to CLI values */
 const SPLIT_MAP = {
@@ -259,18 +244,20 @@ app.post("/api/run", (req, res) => {
         let preprocess = vals[3] || 0;
         let convertPlanToIR = vals[4] || 0;
 
-        /* For Node-Based, convert_plan_to_IR is 0;
-           for other strategies, swap preprocess and convert_plan_to_IR
-           (the CSV outputs them in reversed order for all engines) */
-        console.log(`[DEBUG] engine=${engine}, split=${splitArg}`);
-        console.log(`[DEBUG] vals[3]=${vals[3]}, vals[4]=${vals[4]}`);
-        console.log(`[DEBUG] all CSV:`, vals.join(", "));
+        /* Node-based has no convert_plan_to_ir field; groups start at idx=4.
+           For other strategies with duckdb, preprocess and convert_plan_to_IR
+           are swapped in the CSV output. */
+        let groupStart;
         if (splitArg === "nodebased") {
           convertPlanToIR = 0;
+          groupStart = 4;
         } else {
-          const tmp = preprocess;
-          preprocess = convertPlanToIR;
-          convertPlanToIR = tmp;
+          if (engine === "duckdb") {
+            const tmp = preprocess;
+            preprocess = convertPlanToIR;
+            convertPlanToIR = tmp;
+          }
+          groupStart = 5;
         }
 
         /* Fixed end: last 3 values */
@@ -279,7 +266,7 @@ app.post("/api/run", (req, res) => {
         const generateFinalSubSql = vals[vals.length - 3] || 0;
 
         /* Middle: repeating groups of 5 per iteration */
-        const groupValues = vals.slice(5, vals.length - 3);
+        const groupValues = vals.slice(groupStart, vals.length - 3);
         const groupCols = 5; /* extract, generate, execute, materialization, update */
 
         let sumExtract = 0, sumGenerate = 0, sumExecute = 0, sumMaterialize = 0, sumUpdate = 0;
@@ -301,8 +288,11 @@ app.post("/api/run", (req, res) => {
           sumUpdate += mainGroupVals[base + 4] || 0;
         }
 
-        /* Execution = DB work, Overhead = everything else */
-        const execution = preprocess + sumExecute + sumMaterialize + finalExe;
+        /* Execution = DB work, Overhead = everything else.
+           When --combine-sub-plans is used, only finalExe counts as execution. */
+        const execution = mergeSubPlan
+          ? finalExe
+          : preprocess + sumExecute + sumMaterialize + finalExe;
         const overhead = total - execution;
 
         parsed.timing = { execution, overhead, total };
