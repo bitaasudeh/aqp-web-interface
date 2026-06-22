@@ -69,6 +69,66 @@ function SqlBlock({ sql, fontSize = 10.5, tempColors = {} }) {
 /* Rank colors for the top-3 bottleneck operators (#1 → #3). */
 const BOTTLENECK_COLORS = ["#DC2626", "#EA580C", "#CA8A04"];
 
+/* Postgres / Umbra / OpenGauss self-time: each operator line carries
+   "actual time=start..end rows=R loops=L". The end time is per-loop and
+   INCLUDES children, so node total = end × loops and self-time = node total −
+   Σ(direct children totals). Direct children are found via line indentation
+   (a stack of ancestors). Returns timing tokens with char offsets so the
+   "actual time=…" substring can be highlighted. */
+function postgresTimings(text) {
+  const re = /actual time=([\d.]+)\.\.([\d.]+)(?:\s+rows=\d+\s+loops=(\d+))?/;
+  const nodes = [];
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    const m = line.match(re);
+    if (m) {
+      const indent = line.match(/^\s*/)[0].length;
+      const total = parseFloat(m[2]) * (m[3] ? parseInt(m[3]) : 1);
+      nodes.push({
+        indent, total, childrenTotal: 0,
+        start: offset + m.index, end: offset + m.index + m[0].length,
+      });
+    }
+    offset += line.length + 1; /* +1 for the stripped "\n" */
+  }
+  /* Attribute each node's total to its immediate parent (indentation stack). */
+  const stack = [];
+  for (const n of nodes) {
+    while (stack.length && stack[stack.length - 1].indent >= n.indent) stack.pop();
+    if (stack.length) stack[stack.length - 1].childrenTotal += n.total;
+    stack.push(n);
+  }
+  return nodes.map((n) => ({
+    start: n.start, end: n.end, unit: "ms",
+    value: Math.max(0, n.total - n.childrenTotal),
+  }));
+}
+
+/* Extract per-operator timings for whichever engine's plan format this is.
+   Each entry = { start, end (char offsets of the token to highlight), value
+   (numeric, for ranking + the legend), unit }. */
+function findPlanTimings(text) {
+  let m;
+  /* DuckDB: per-operator self-time "(X.XXs)". */
+  const duck = [];
+  const duckRe = /\(([\d.]+)s\)/g;
+  while ((m = duckRe.exec(text)) !== null) {
+    duck.push({ start: m.index, end: m.index + m[0].length, value: parseFloat(m[1]), unit: "s" });
+  }
+  if (duck.length) return duck;
+
+  /* Postgres / Umbra / OpenGauss. */
+  if (/actual time=/.test(text)) return postgresTimings(text);
+
+  /* MariaDB ANALYZE (best-effort): "r_total_time_ms": X. */
+  const maria = [];
+  const mariaRe = /r_total_time_ms"?\s*[:=]\s*([\d.]+)/g;
+  while ((m = mariaRe.exec(text)) !== null) {
+    maria.push({ start: m.index, end: m.index + m[0].length, value: parseFloat(m[1]), unit: "ms" });
+  }
+  return maria;
+}
+
 function PlanBlock({ text, fontSize = 10.5, maxHeight = 360 }) {
   if (!text) {
     return (
@@ -78,16 +138,9 @@ function PlanBlock({ text, fontSize = 10.5, maxHeight = 360 }) {
     );
   }
 
-  /* DuckDB prints each operator's own time as "(X.XXs)". Find the 3 largest
-     (>0) and highlight those exact timing tokens in the tree, graduated red →
-     orange → amber for #1 → #3. (Postgres/MariaDB use other formats, so they
-     just render plain — no false matches.) */
-  const timings = [];
-  const timeRe = /\(([\d.]+)s\)/g;
-  let tm;
-  while ((tm = timeRe.exec(text)) !== null) {
-    timings.push({ start: tm.index, end: tm.index + tm[0].length, value: parseFloat(tm[1]), raw: tm[1] });
-  }
+  /* Find each operator's time (format-specific), then highlight the 3 largest
+     (>0) tokens in the tree, graduated red → orange → amber for #1 → #3. */
+  const timings = findPlanTimings(text);
   const ranked = timings
     .filter((t) => t.value > 0)
     .sort((a, b) => b.value - a.value)
@@ -117,7 +170,7 @@ function PlanBlock({ text, fontSize = 10.5, maxHeight = 360 }) {
           <span style={{ color: "var(--ink-muted)", fontWeight: 700 }}>Top bottlenecks (self-time):</span>
           {ranked.map((t, i) => (
             <span key={i} style={{ background: BOTTLENECK_COLORS[i], color: "#fff", fontWeight: 800, padding: "0 5px", borderRadius: "3px" }}>
-              #{i + 1}, {t.raw}s
+              #{i + 1}: {t.value.toFixed(2)}{t.unit}
             </span>
           ))}
         </div>
@@ -390,18 +443,28 @@ export default function App() {
       .catch(() => {});
   }, [selectedQuery]);
 
+  /* The Vanilla Query Plan box shows the whole-query plan for a single engine.
+     On the Demo Scenarios "DB Systems" mode two different engines are compared,
+     so there's no single engine to show — hide the box there. On the other modes
+     the engine is shared (compEngine); elsewhere use the normal `engine`. */
+  const vanillaOnCompare = activeTab === "Demo Scenarios";
+  const vanillaEngine = vanillaOnCompare ? compEngine : engine;
+  const showVanillaPlan = !(vanillaOnCompare && compDim === "engines");
+
   /* Fetch the vanilla (un-split) query's EXPLAIN ANALYZE plan automatically.
      Debounced so editing the SQL doesn't fire a (costly) plan run per keystroke;
      EXPLAIN ANALYZE actually executes the query on the engine. */
   useEffect(() => {
-    if (!customSql || !customSql.trim()) { setVanillaPlan(""); setVanillaPlanError(null); return; }
+    if (!showVanillaPlan || !customSql || !customSql.trim()) {
+      setVanillaPlan(""); setVanillaPlanError(null); return;
+    }
     const handle = setTimeout(() => {
       setVanillaPlanLoading(true);
       setVanillaPlanError(null);
       fetch("/api/vanilla-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ engine, customSql, query: selectedQuery }),
+        body: JSON.stringify({ engine: vanillaEngine, customSql, query: selectedQuery }),
       })
         .then(async (r) => {
           const j = await r.json();
@@ -412,7 +475,7 @@ export default function App() {
         .finally(() => setVanillaPlanLoading(false));
     }, 800);
     return () => clearTimeout(handle);
-  }, [customSql, engine, selectedQuery]);
+  }, [customSql, vanillaEngine, selectedQuery, showVanillaPlan]);
 
   /* Helper: run a single query and return parsed data */
   const runOne = async (eng, split, ce = cardinalityEstimator, comb = mergeSubPlan, explain = false) => {
@@ -511,33 +574,40 @@ export default function App() {
     }
   };
 
-  /* Show Plan toggle — rendered directly under whichever "Run Query" button is
-     active. Flips every Sub-SQL box between SQL code and its EXPLAIN ANALYZE
-     plan; switching to plan mode lazily re-runs with --explain so normal runs
-     stay fast. Label names what clicking will show; clicking "Show SQL Code"
-     just restores the SQL (no re-run). */
+  /* View toggle — a two-segment control with BOTH options always visible
+     ("SQL Code" | "Plan"); the active one is highlighted. Choosing Plan lazily
+     re-runs with --explain so normal runs stay fast; choosing SQL just restores
+     the SQL (no re-run). */
+  const segStyle = (active) => ({
+    flex: 1, padding: "5px 0", fontSize: "10px", fontWeight: 700,
+    cursor: isRunning ? "default" : "pointer", border: "none",
+    background: active ? "#0D9488" : "var(--surface)",
+    color: active ? "#fff" : "#0D9488",
+    transition: "all 0.15s",
+  });
   const planToggleBtn = (
-    <button
-      className="run-btn"
-      disabled={isRunning}
-      title="Toggle each sub-query box between SQL code and its EXPLAIN ANALYZE plan"
-      onClick={() => {
-        if (viewMode === "sql") {
+    <div style={{
+      display: "flex", width: "100%", marginTop: "6px", marginBottom: "4px",
+      border: "2px solid #0D9488", borderRadius: "var(--radius-md)", overflow: "hidden",
+    }}>
+      <button
+        disabled={isRunning}
+        title="Show each sub-query as SQL code"
+        onClick={() => setViewMode("sql")}
+        style={{ ...segStyle(viewMode === "sql"), borderRight: "1px solid #0D9488" }}>
+        SQL Code
+      </button>
+      <button
+        disabled={isRunning}
+        title="Show each sub-query's EXPLAIN ANALYZE plan"
+        onClick={() => {
           setViewMode("plan");
           if (hasRun && !plansLoaded && !isRunning) handleRun(true);
-        } else {
-          setViewMode("sql");
-        }
-      }}
-      style={{
-        marginTop: "6px", marginBottom: "4px", width: "100%",
-        padding: "5px 0", fontSize: "10px",
-        background: viewMode === "plan" ? "#0D9488" : "var(--surface)",
-        color: viewMode === "plan" ? "#fff" : "#0D9488",
-        border: "2px solid #0D9488",
-      }}>
-      {viewMode === "sql" ? "Show Plan" : "Show SQL Code"}
-    </button>
+        }}
+        style={segStyle(viewMode === "plan")}>
+        Plan
+      </button>
+    </div>
   );
 
   return (
@@ -631,25 +701,28 @@ export default function App() {
             </div>
 
             {/* Vanilla query EXPLAIN ANALYZE plan — fixed-size, scrollable box.
-                Fetched automatically (debounced) for the current query + engine. */}
-            <label className="field-label" style={{ marginTop: "8px", display: "flex", justifyContent: "space-between" }}>
-              <span>Vanilla Query Plan</span>
-              {vanillaPlanLoading && <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>loading…</span>}
-            </label>
-            <div style={{
-              border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
-              background: "var(--surface-sunken)", padding: "8px",
-            }}>
-              {vanillaPlanError ? (
-                <div style={{ fontSize: "10px", color: "#DC2626", whiteSpace: "pre-wrap", minHeight: "60px" }}>{vanillaPlanError}</div>
-              ) : vanillaPlan ? (
-                <PlanBlock text={vanillaPlan} fontSize={9} maxHeight={220} />
-              ) : (
-                <div style={{ fontSize: "10px", color: "var(--ink-muted)", fontStyle: "italic", minHeight: "60px" }}>
-                  {vanillaPlanLoading ? "Running EXPLAIN ANALYZE…" : "No plan available yet."}
-                </div>
-              )}
-            </div>
+                Fetched automatically (debounced) for the current query + engine.
+                Hidden on the "DB Systems" comparison (two engines, no single one). */}
+            {showVanillaPlan && (<>
+              <label className="field-label" style={{ marginTop: "8px", display: "flex", justifyContent: "space-between" }}>
+                <span>Vanilla Query Plan{vanillaOnCompare ? ` (${ {duckdb:"DuckDB",postgresql:"PostgreSQL",umbra:"Umbra",mariadb:"MariaDB",opengauss:"OpenGauss"}[vanillaEngine] })` : ""}</span>
+                {vanillaPlanLoading && <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>loading…</span>}
+              </label>
+              <div style={{
+                border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
+                background: "var(--surface-sunken)", padding: "8px",
+              }}>
+                {vanillaPlanError ? (
+                  <div style={{ fontSize: "10px", color: "#DC2626", whiteSpace: "pre-wrap", minHeight: "60px" }}>{vanillaPlanError}</div>
+                ) : vanillaPlan ? (
+                  <PlanBlock text={vanillaPlan} fontSize={9} maxHeight={220} />
+                ) : (
+                  <div style={{ fontSize: "10px", color: "var(--ink-muted)", fontStyle: "italic", minHeight: "60px" }}>
+                    {vanillaPlanLoading ? "Running EXPLAIN ANALYZE…" : "No plan available yet."}
+                  </div>
+                )}
+              </div>
+            </>)}
 
             {(activeTab === "Demo Scenarios" || activeTab === "Engine2") && (
               <button className="run-btn" onClick={() => handleRun()} disabled={isRunning}
@@ -1073,9 +1146,20 @@ export default function App() {
                                   </div>
                                 )
                               ) : (
-                                <ScenarioPipeline data={d} activeNode={scenarioNode} setActiveNode={setScenarioNode}
-                                  useCombineArrow={false}
-                                  hideResult hideTiming viewMode={viewMode} />
+                                <div style={{ maxHeight: "250px", overflowY: "auto" }}>
+                                  <ScenarioPipeline data={d} activeNode={scenarioNode} setActiveNode={setScenarioNode}
+                                    useCombineArrow={false}
+                                    hideResult hideTiming viewMode={viewMode} />
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" }}>
+                                    {d.rounds.map((round) => (
+                                      <div key={round.roundNum} className="node-detail"
+                                        style={{ borderColor: round.color, backgroundColor: `${round.color}10` }}>
+                                        <div style={{ fontSize: "9px", fontWeight: 700, color: round.color, marginBottom: "2px" }}>{round.subSqlTitle}</div>
+                                        <RoundDetail round={round} viewMode={viewMode} fontSize={10} tempColors={tempColors} />
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
                               )
                             ) : null}
                           </div>
