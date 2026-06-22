@@ -27,6 +27,24 @@ const SPLIT_MAP = {
   "node-based": "nodebased",
 };
 
+/* ─── DuckDB serialization lock ──────────────────────────────────────────────
+   DuckDB keeps its whole database in one file and allows only a single
+   read-write process at a time. A query run holds that lock (it creates temp
+   tables), so a concurrent vanilla-plan EXPLAIN — a second middleware process
+   opening the same file — fails with "Conflicting lock is held". We serialize
+   all DuckDB middleware invocations through a promise chain so they never
+   overlap; other engines are servers and need no lock. acquireDbLock resolves
+   to a release() that must be called once the spawned process has exited. */
+let duckChainTail = Promise.resolve();
+function acquireDbLock(engine) {
+  if (engine !== "duckdb") return Promise.resolve(() => {});
+  let release;
+  const mine = new Promise((r) => { release = r; });
+  const wait = duckChainTail;
+  duckChainTail = wait.then(() => mine);   /* next caller waits for our release */
+  return wait.then(() => release);
+}
+
 /* ─── Output parser ─────────────────────────────────────────────────────────── */
 function parseMiddlewareOutput(stdout) {
   const result = {
@@ -198,7 +216,7 @@ app.get("/api/query/:name", (req, res) => {
 });
 
 /* ─── API endpoint ──────────────────────────────────────────────────────────── */
-app.post("/api/run", (req, res) => {
+app.post("/api/run", async (req, res) => {
   const { engine = "duckdb", split = "relation-center", query = "1a", customSql,
           cardinalityEstimator = true, mergeSubPlan = false, explain = false } = req.body;
 
@@ -251,11 +269,13 @@ app.post("/api/run", (req, res) => {
   const csvPath = path.join(process.cwd(), "time_log.csv");
   try { unlinkSync(csvPath); } catch {}
 
-  const startTime = Date.now();
   const execEnv = engine === "opengauss"
     ? { ...process.env, LD_LIBRARY_PATH: path.join(process.env.HOME, "gauss_compat_libs") + (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : "") }
     : process.env;
+  const releaseLock = await acquireDbLock(engine);   /* serialize DuckDB access */
+  const startTime = Date.now();
   execFile(AQP_BIN, args, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, env: execEnv }, (err, stdout, stderr) => {
+    releaseLock();                                    /* DB process exited; free the lock */
     const totalTime = Date.now() - startTime;
     if (tmpFile) try { unlinkSync(tmpFile); } catch {}
     console.log("[DEBUG] err:", err ? err.code : null, "stderr:", (stderr||"").substring(0,100), "stdout has Error:", (stdout||"").includes("Error:"));
@@ -362,7 +382,7 @@ app.post("/api/run", (req, res) => {
    Returns the EXPLAIN ANALYZE plan of the *whole* (un-split) query. We prepend
    "EXPLAIN ANALYZE" to the SQL and run it through the middleware in --split=none
    (direct execution) mode, then extract the plan text from the results block. */
-app.post("/api/vanilla-plan", (req, res) => {
+app.post("/api/vanilla-plan", async (req, res) => {
   const { engine = "duckdb", customSql, query = "1a" } = req.body;
   const dbArg = ENGINE_DB[engine] || ENGINE_DB.duckdb;
 
@@ -395,7 +415,9 @@ app.post("/api/vanilla-plan", (req, res) => {
     ? { ...process.env, LD_LIBRARY_PATH: path.join(process.env.HOME, "gauss_compat_libs") + (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : "") }
     : process.env;
 
+  const releaseLock = await acquireDbLock(engine);   /* serialize DuckDB access */
   execFile(AQP_BIN, args, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, env: execEnv }, (err, stdout, stderr) => {
+    releaseLock();                                    /* DB process exited; free the lock */
     try { unlinkSync(tmpFile); } catch {}
     if (err && (!stdout || !stdout.includes("=== Query Results ==="))) {
       return res.status(500).json({ error: (stderr || "").trim() || err.message });
